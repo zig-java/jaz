@@ -47,35 +47,30 @@ pub fn main() anyerror!void {
             
                 var k = try opcodes.Operation.readFrom(fbs_reader);
                 while (true) {
-                    switch (k.opcode) {
-                        .ldc => {
-                            var params = k.params.ldc;
-
+                    switch (k) {
+                        .ldc => |params| {
                             std.log.info((" " ** 4) ++ "LDC: {s}", .{
                                 cl.resolveConstant(params.index)
                             });
                         },
-                        .getstatic => {
-                            var params = k.params.getstatic;
-                            var index = opcodes.indexFromTwo(params.indexbyte1, params.indexbyte2);
+                        .getstatic => |params| {
+                            var index = opcodes.getIndex(params);
                             var fieldref = cl.resolveConstant(index).fieldref;
 
                             std.log.info((" " ** 4) ++ "GET STATIC: {s} {s}", .{
                                 fieldref.resolveClassInfo(cl.constant_pool).resolveName(cl.constant_pool).bytes, fieldref.resolveNameAndTypeInfo(cl.constant_pool).resolveName(cl.constant_pool).bytes
                             });
                         },
-                        .invokevirtual => {
-                            var params = k.params.invokevirtual;
-                            var index = opcodes.indexFromTwo(params.indexbyte1, params.indexbyte2);
+                        .invokevirtual => |params| {
+                            var index = opcodes.getIndex(params);
                             var methodref = cl.resolveConstant(index).methodref;
 
                             std.log.info((" " ** 4) ++ "INVOKE VIRTUAL: {s} {s}", .{
                                 methodref.resolveClassInfo(cl.constant_pool).resolveName(cl.constant_pool).bytes, methodref.resolveNameAndTypeInfo(cl.constant_pool).resolveName(cl.constant_pool).bytes
                             });
                         },
-                        .invokespecial => {
-                            var params = k.params.invokespecial;
-                            var index = opcodes.indexFromTwo(params.indexbyte1, params.indexbyte2);
+                        .invokespecial => |params| {
+                            var index = opcodes.getIndex(params);
                             var methodref = cl.resolveConstant(index).methodref;
 
                             std.log.info((" " ** 4) ++ "INVOKE VIRTUAL: {s} {s}", .{

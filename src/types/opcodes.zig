@@ -426,7 +426,9 @@ pub const ldc2_w_params = packed struct {
     indexbyte2: u8,
 };
 
-pub const OperationParams = union(enum) {
+pub const Operation = union(Opcode) {
+    const Self = @This();
+
     aload: aload_params,
     anewarray: anewarray_params,
     astore: astore_params,
@@ -470,39 +472,188 @@ pub const OperationParams = union(enum) {
     ldc_w: ldc_w_params,
     ldc2_w: ldc2_w_params,
 
-    none: void,
-};
-
-const OSelf = @This();
-pub const Operation = struct {
-    const Self = @This();
-
-    opcode: Opcode,
-    params: OperationParams,
+    nop,
+    aconst_null,
+    iconst_m1,
+    iconst_0,
+    iconst_1,
+    iconst_2,
+    iconst_3,
+    iconst_4,
+    iconst_5,
+    lconst_0,
+    lconst_1,
+    fconst_0,
+    fconst_1,
+    fconst_2,
+    dconst_0,
+    dconst_1,
+    sipush,
+    iload_0,
+    iload_1,
+    iload_2,
+    iload_3,
+    lload_0,
+    lload_1,
+    lload_2,
+    lload_3,
+    fload_0,
+    fload_1,
+    fload_2,
+    fload_3,
+    dload_0,
+    dload_1,
+    dload_2,
+    dload_3,
+    aload_0,
+    aload_1,
+    aload_2,
+    aload_3,
+    iaload,
+    laload,
+    faload,
+    daload,
+    aaload,
+    baload,
+    caload,
+    saload,
+    istore_0,
+    istore_1,
+    istore_2,
+    istore_3,
+    lstore_0,
+    lstore_1,
+    lstore_2,
+    lstore_3,
+    fstore_0,
+    fstore_1,
+    fstore_2,
+    fstore_3,
+    dstore_0,
+    dstore_1,
+    dstore_2,
+    dstore_3,
+    astore_0,
+    astore_1,
+    astore_2,
+    astore_3,
+    iastore,
+    lastore,
+    fastore,
+    dastore,
+    aastore,
+    bastore,
+    castore,
+    sastore,
+    pop,
+    pop2,
+    dup,
+    dup_x1,
+    dup_x2,
+    dup2,
+    dup2_x1,
+    dup2_x2,
+    swap,
+    iadd,
+    ladd,
+    fadd,
+    dadd,
+    isub,
+    lsub,
+    fsub,
+    dsub,
+    imul,
+    lmul,
+    fmul,
+    dmul,
+    idiv,
+    ldiv,
+    fdiv,
+    ddiv,
+    irem,
+    lrem,
+    frem,
+    drem,
+    ineg,
+    lneg,
+    fneg,
+    dneg,
+    ishl,
+    lshl,
+    ishr,
+    lshr,
+    iushr,
+    lushr,
+    iand,
+    land,
+    ior,
+    lor,
+    ixor,
+    lxor,
+    i2l,
+    i2f,
+    i2d,
+    l2i,
+    l2f,
+    l2d,
+    f2i,
+    f2l,
+    f2d,
+    d2i,
+    d2l,
+    d2f,
+    i2b,
+    i2c,
+    i2s,
+    lcmp,
+    fcmpl,
+    fcmpg,
+    dcmpl,
+    dcmpg,
+    ret,
+    tableswitch,
+    lookupswitch,
+    ireturn,
+    lreturn,
+    freturn,
+    dreturn,
+    areturn,
+    @"return",
+    putstatic,
+    putfield,
+    new,
+    newarray,
+    arraylength,
+    athrow,
+    monitorenter,
+    monitorexit,
+    wide,
+    multianewarray,
+    goto_w,
+    breakpoint,
+    impdep1,
+    lload,
+    lstore,
+    impdep2: void,
 
     pub fn readFrom(reader: anytype) !Self {
         var opcode = try reader.readIntBig(u8);
 
-        inline for (std.meta.fields(Opcode)) |op| {
-            if (op.value == opcode) {
-                if (@hasField(OperationParams, op.name)) {
-                    return Self{
-                        .opcode = Opcode.resolve(opcode),
-                        .params = @unionInit(OperationParams, op.name, try reader.readStruct(@field(OSelf, op.name ++ "_params")))
-                    };
-                }
+        inline for (std.meta.fields(Self)) |op| {
+            if (@enumToInt(std.meta.stringToEnum(Opcode, op.name).?) == opcode) {
+                return @unionInit(Self, op.name, if (op.field_type == void) {} else try reader.readStruct(op.field_type));
             }
         }
 
-        return Self{
-            .opcode = Opcode.resolve(opcode),
-            .params = .none
-        };
+        unreachable;
     }
 };
 
 const std = @import("std");
 
-pub fn indexFromTwo(indexbyte1: u8, indexbyte2: u8) u16 {
-    return (@intCast(u16, indexbyte1) << @intCast(u16, 8) | @intCast(u16, indexbyte2));
+/// Get the index specified by an operation, if possible
+pub fn getIndex(inst: anytype) u16 {
+    if (!@hasField(@TypeOf(inst), "indexbyte1")) @compileError("This instruction does not have an index!");
+    if (!@hasField(@TypeOf(inst), "indexbyte3")) return (@intCast(u16, @field(inst, "indexbyte1")) << @intCast(u16, 8) | @intCast(u16, @field(inst, "indexbyte2")));
+    unreachable;
 }
