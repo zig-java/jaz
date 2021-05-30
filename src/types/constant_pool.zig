@@ -1,4 +1,6 @@
 const std = @import("std");
+const ClassFile = @import("ClassFile.zig");
+const descriptors = @import("descriptors.zig");
 
 pub const ConstantPoolTag = enum(u8) {
     class = 7,
@@ -26,8 +28,8 @@ pub const ConstantPoolClassInfo = packed struct {
     /// Points to a `ConstantPoolUtf8Info`
     name_index: u16,
 
-    pub fn resolveName(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolUtf8Info {
-        return constant_pool[self.name_index - 1].utf8;
+    pub fn getName(self: Self, constant_pool: []ConstantPoolInfo) []const u8 {
+        return constant_pool[self.name_index - 1].utf8.bytes;
     }
 };
 
@@ -39,11 +41,11 @@ pub const ConstantPoolRefInfo = packed struct {
     /// Points to a `ConstantPoolNameAndTypeInfo`
     name_and_type_index: u16,
 
-    pub fn resolveClassInfo(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolClassInfo {
+    pub fn getClassInfo(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolClassInfo {
         return constant_pool[self.class_index - 1].class;
     }
 
-    pub fn resolveNameAndTypeInfo(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolNameAndTypeInfo {
+    pub fn getNameAndTypeInfo(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolNameAndTypeInfo {
         return constant_pool[self.name_and_type_index - 1].name_and_type;
     }
 };
@@ -81,12 +83,12 @@ pub const ConstantPoolNameAndTypeInfo = packed struct {
     /// Points to a `ConstantPoolUtf8Info` representing a field or method descriptor
     descriptor_index: u16,
 
-    pub fn resolveName(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolUtf8Info {
-        return constant_pool[self.name_index - 1].utf8;
+    pub fn getName(self: Self, constant_pool: []ConstantPoolInfo) []const u8 {
+        return constant_pool[self.name_index - 1].utf8.bytes;
     }
 
-    pub fn resolveDescriptor(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolUtf8Info {
-        return constant_pool[self.descriptor_index - 1].utf8;
+    pub fn getDescriptor(self: Self, constant_pool: []ConstantPoolInfo) []const u8 {
+        return constant_pool[self.descriptor_index - 1].utf8.bytes;
     }
 };
 
@@ -136,7 +138,7 @@ pub const ConstantPoolMethodHandleInfo = struct {
         };
     }
 
-    pub fn resolveReference(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolInfo {
+    pub fn getReference(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolInfo {
         var ref = constant_pool[self.reference_index - 1];
         switch (self.reference_kind) {
             .get_field,
@@ -161,8 +163,8 @@ pub const ConstantPoolMethodTypeInfo = packed struct {
 
     descriptor_index: u16,
 
-    pub fn resolveDescriptor(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolUtf8Info {
-        return constant_pool[self.descriptor_index - 1].utf8;
+    pub fn getDescriptor(self: Self, constant_pool: []ConstantPoolInfo) []const u8 {
+        return constant_pool[self.descriptor_index - 1].utf8.bytes;
     }
 };
 
@@ -170,7 +172,7 @@ pub const ConstantPoolDynamicInfo = packed struct {
     bootstrap_method_attr_index: u16,
     name_and_type_index: u16,
 
-    pub fn resolveNameAndTypeInfo(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolNameAndTypeInfo {
+    pub fn getNameAndTypeInfo(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolNameAndTypeInfo {
         return constant_pool[self.name_and_type_index - 1].name_and_type;
     }
 };
@@ -179,7 +181,7 @@ pub const ConstantPoolInvokeDynamicInfo = packed struct {
     bootstrap_method_attr_index: u16,
     name_and_type_index: u16,
 
-    pub fn resolveNameAndTypeInfo(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolNameAndTypeInfo {
+    pub fn getNameAndTypeInfo(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolNameAndTypeInfo {
         return constant_pool[self.name_and_type_index - 1].name_and_type;
     }
 };
@@ -187,16 +189,16 @@ pub const ConstantPoolInvokeDynamicInfo = packed struct {
 pub const ConstantPoolModuleInfo = packed struct {
     name_index: u16,
 
-    pub fn resolveName(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolUtf8Info {
-        return constant_pool[self.name_index - 1].utf8;
+    pub fn getName(self: Self, constant_pool: []ConstantPoolInfo) []const u8 {
+        return constant_pool[self.name_index - 1].utf8.bytes;
     }
 };
 
 pub const ConstantPoolPackageInfo = packed struct {
     name_index: u16,
 
-    pub fn resolveName(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolUtf8Info {
-        return constant_pool[self.name_index - 1].utf8;
+    pub fn getName(self: Self, constant_pool: []ConstantPoolInfo) []const u8 {
+        return constant_pool[self.name_index - 1].utf8.bytes;
     }
 };
 
@@ -233,7 +235,7 @@ pub const ConstantPoolInfo = union(ConstantPoolTag) {
             const this_tag_value = @field(ConstantPoolTag, f.name);
             if (tag == @enumToInt(this_tag_value)) {
                 const T = std.meta.fields(Self)[i].field_type;
-                var k: std.meta.fields(Self)[i].field_type = undefined;
+                var k: T = undefined;
                 if (@hasDecl(T, "readFrom")) k = try T.readFrom(allocator, reader)
                 else {
                     k = try reader.readStruct(T);
