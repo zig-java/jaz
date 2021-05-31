@@ -426,6 +426,48 @@ pub const ldc2_w_params = packed struct {
     indexbyte2: u8,
 };
 
+//
+
+pub const lload_params = packed struct {
+    index: u8
+};
+
+/// TODO
+pub const lookupswitch_params = packed struct {
+    // TODO!!!!
+    placeholder: u128
+};
+
+pub const lstore_params = packed struct {
+    index: u8
+};
+
+pub const multianewarray_params = packed struct {
+    indexbyte1: u8,
+    indexbyte2: u8,
+    dimensions: u8
+};
+
+pub const new_params = packed struct {
+    indexbyte1: u8,
+    indexbyte2: u8
+};
+
+pub const sipush_params = packed struct {
+    byte1: u8,
+    byte2: u8
+};
+
+pub const putfield_params = packed struct {
+    indexbyte1: u8,
+    indexbyte2: u8
+};
+
+pub const putstatic_params = packed struct {
+    indexbyte1: u8,
+    indexbyte2: u8
+};
+
 pub const Operation = union(Opcode) {
     const Self = @This();
 
@@ -471,6 +513,14 @@ pub const Operation = union(Opcode) {
     ldc: ldc_params,
     ldc_w: ldc_w_params,
     ldc2_w: ldc2_w_params,
+    lookupswitch: lookupswitch_params,
+    new: new_params,
+    multianewarray: multianewarray_params,
+    lload: lload_params,
+    lstore: lstore_params,
+    sipush: sipush_params,
+    putstatic: putstatic_params,
+    putfield: putfield_params,
 
     nop,
     aconst_null,
@@ -488,7 +538,6 @@ pub const Operation = union(Opcode) {
     fconst_2,
     dconst_0,
     dconst_1,
-    sipush,
     iload_0,
     iload_1,
     iload_2,
@@ -612,28 +661,21 @@ pub const Operation = union(Opcode) {
     dcmpg,
     ret,
     tableswitch,
-    lookupswitch,
     ireturn,
     lreturn,
     freturn,
     dreturn,
     areturn,
     @"return",
-    putstatic,
-    putfield,
-    new,
     newarray,
     arraylength,
     athrow,
     monitorenter,
     monitorexit,
     wide,
-    multianewarray,
     goto_w,
     breakpoint,
     impdep1,
-    lload,
-    lstore,
     impdep2: void,
 
     pub fn readFrom(reader: anytype) !Self {
@@ -645,7 +687,8 @@ pub const Operation = union(Opcode) {
             }
         }
 
-        unreachable;
+        // Unused/reserved instructions are noops
+        return .nop;
     }
 };
 

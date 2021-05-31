@@ -66,6 +66,11 @@ pub const Descriptor = union(enum) {
         }
     }
 
+    pub fn toStringArrayList(self: Self, buf: *std.ArrayList(u8)) !void {
+        try buf.ensureCapacity(0);
+        try self.stringify(buf.writer());
+    }
+
     pub fn humanStringify(self: Self, writer: anytype) anyerror!void {
         try switch (self) {
             .byte => _ = try writer.writeAll("byte"),
@@ -96,6 +101,11 @@ pub const Descriptor = union(enum) {
             },
             .method => error.NotImplemented
         };
+    }
+
+    pub fn toHumanStringArrayList(self: Self, buf: *std.ArrayList(u8)) !void {
+        try buf.ensureCapacity(0);
+        try self.humanStringify(buf.writer());
     }
 
     pub fn deinit(self: *Self, allocator: *std.mem.Allocator) void {
@@ -165,6 +175,11 @@ fn parse_(allocator: *std.mem.Allocator, reader: anytype) anyerror!?*Descriptor 
 
 pub fn parse(allocator: *std.mem.Allocator, reader: anytype) anyerror!*Descriptor {
     return (try parse_(allocator, reader)).?;
+}
+
+pub fn parseString(allocator: *std.mem.Allocator, string: []const u8) !*Descriptor {
+    var fbs = std.io.fixedBufferStream(string);
+    return parse(allocator, fbs.reader());
 }
 
 test "Descriptors: Write/parse 3D array of objects" {

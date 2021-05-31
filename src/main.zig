@@ -16,18 +16,20 @@ pub fn formatMethod(allocator: *std.mem.Allocator, class_file: ClassFile, method
 
     var desc = method.getDescriptor(class_file);
     var fbs = std.io.fixedBufferStream(desc);
-    std.log.info("{s}", .{desc});
+    
+    // Write human readable return descriptor
     var descriptor = try descriptors.parse(allocator, fbs.reader());
     try descriptor.method.return_type.humanStringify(writer);
-    _ = try writer.writeAll(" ");
+
+    // Write human readable parameters descriptor
+    try writer.writeByte(' ');
     _ = try writer.writeAll(method.getName(class_file));
-    _ = try writer.writeAll("(");
+    try writer.writeByte('(');
     for (descriptor.method.parameters) |param, i| {
         try param.humanStringify(writer);
-        if (i + 1 != descriptor.method.parameters.len)
-        _ = try writer.writeAll(",");
+        if (i + 1 != descriptor.method.parameters.len) _ = try writer.writeAll(", ");
     }
-    _ = try writer.writeAll(")");
+    try writer.writeByte(')');
 }
 
 pub fn main() anyerror!void {
@@ -62,7 +64,11 @@ pub fn main() anyerror!void {
     }
 
     for (cl.fields) |*field| {
-        std.log.info("field: '{s}' of type '{s}'", .{field.getName(cl), field.getDescriptor(cl)});
+        var desc = try descriptors.parseString(allocator, field.getDescriptor(cl));
+        defer desc.deinit(allocator);
+
+        try desc.toHumanStringArrayList(&w);
+        std.log.info("field: '{s}' of type '{s}'", .{field.getName(cl), w.items});
     }
 
     for (cl.methods) |*method| {
@@ -70,9 +76,7 @@ pub fn main() anyerror!void {
         try formatMethod(allocator, cl, method, w.writer());
         std.log.info("method: {s}", .{w.items});
         for (method.attributes) |*att| {
-            std.log.info((" " ** 4) ++ "method attribute: '{s}'", .{att.getName(cl)});
-            // std.log.info((" " ** 4) ++ "{s}", .{att.info});
-
+            std.debug.print((" " ** 4) ++ "method attribute: '{s}'\n", .{att.getName(cl)});
             if (std.mem.eql(u8, att.getName(cl), "Code")) {
                 var code = att.info;
                 var fbs = std.io.fixedBufferStream(code);
@@ -82,8 +86,15 @@ pub fn main() anyerror!void {
                 while (true) {
                     switch (k) {
                         .ldc => |params| {
-                            std.log.info((" " ** 4) ++ "LDC: {s}", .{
+                            std.log.info("{d}", .{params.index});
+                            std.log.info((" " ** 4) ++ "ldc: {s}", .{
                                 cl.resolveConstant(params.index)
+                            });
+                        },
+                        .ldc2_w => |l| {
+                            std.log.info("{d}", .{opcodes.getIndex(l)});
+                            std.log.info((" " ** 4) ++ "ldc2w: {s}", .{
+                                cl.resolveConstant(opcodes.getIndex(l))
                             });
                         },
                         .getstatic => |params| {
@@ -109,6 +120,15 @@ pub fn main() anyerror!void {
                             std.log.info((" " ** 4) ++ "INVOKE VIRTUAL: {s} {s}", .{
                                 methodref.getClassInfo(cl.constant_pool).getName(cl.constant_pool), methodref.getNameAndTypeInfo(cl.constant_pool).getName(cl.constant_pool)
                             });
+                        },
+                        .@"return",
+                        .ireturn,
+                        .lreturn,
+                        .freturn,
+                        .dreturn,
+                        .areturn => {
+                            std.log.info((" " ** 4) ++ "{s}", .{k});
+                            break;
                         },
                         else => std.log.info((" " ** 4) ++ "{s}", .{k})
                     }
