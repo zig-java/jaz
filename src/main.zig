@@ -1,9 +1,10 @@
 const std = @import("std");
-pub const opcodes = @import("types/opcodes.zig");
-pub const methods = @import("types/methods.zig");
-pub const ClassFile = @import("types/ClassFile.zig");
-pub const descriptors = @import("types/descriptors.zig");
-pub const constant_pool = @import("types/constant_pool.zig");
+const opcodes = @import("types/opcodes.zig");
+const methods = @import("types/methods.zig");
+const ClassFile = @import("types/ClassFile.zig");
+const attributes = @import("types/attributes.zig");
+const descriptors = @import("types/descriptors.zig");
+const constant_pool = @import("types/constant_pool.zig");
 
 pub fn formatMethod(allocator: *std.mem.Allocator, class_file: ClassFile, method: *methods.MethodInfo, writer: anytype) !void {
     if (method.access_flags.public) _ = try writer.writeAll("public ");
@@ -39,108 +40,72 @@ pub fn main() anyerror!void {
     defer testClass.close();
 
     var testReader = testClass.reader();
-    var cl = try ClassFile.readFrom(allocator, testReader);
+    var class_file = try ClassFile.readFrom(allocator, testReader);
     
-    std.log.info("this class: {s} {s}", .{cl.this_class.getName(cl.constant_pool), cl.access_flags});
+    std.log.info("this class: {s} {s}", .{class_file.this_class.getName(class_file.constant_pool), class_file.access_flags});
 
     var w = std.ArrayList(u8).init(allocator);
     defer w.deinit();
 
-    for (cl.constant_pool) |cp| {
+    for (class_file.constant_pool) |cp| {
         switch (cp) {
             .utf8, .name_and_type, .string => {},
             .fieldref, .methodref, .interface_methodref => |ref| {
-                var nti = ref.getNameAndTypeInfo(cl.constant_pool);
-                std.log.info("ref: class '{s}' name '{s} {s}'", .{ref.getClassInfo(cl.constant_pool).getName(cl.constant_pool), nti.getName(cl.constant_pool), nti.getDescriptor(cl.constant_pool)});
+                var nti = ref.getNameAndTypeInfo(class_file.constant_pool);
+                std.log.info("ref: class '{s}' name '{s} {s}'", .{ref.getClassInfo(class_file.constant_pool).getName(class_file.constant_pool), nti.getName(class_file.constant_pool), nti.getDescriptor(class_file.constant_pool)});
             },
             .class => |clz| {
-                std.log.info("class: {s}", .{clz.getName(cl.constant_pool)});
+                std.log.info("class: {s}", .{clz.getName(class_file.constant_pool)});
             },
             .method_handle => |handle| {
-                std.log.info("method handle: {s}", .{handle.getReference(cl.constant_pool)});
+                std.log.info("method handle: {s}", .{handle.getReference(class_file.constant_pool)});
             },
             else => |o| std.log.info("OTHER: {s}", .{o})
         }
     }
 
-    for (cl.fields) |*field| {
-        var desc = try descriptors.parseString(allocator, field.getDescriptor(cl));
+    for (class_file.fields) |*field| {
+        var desc = try descriptors.parseString(allocator, field.getDescriptor(class_file));
         defer desc.deinit(allocator);
 
         try desc.toHumanStringArrayList(&w);
-        std.log.info("field: '{s}' of type '{s}'", .{field.getName(cl), w.items});
+        std.log.info("field: '{s}' of type '{s}'", .{field.getName(class_file), w.items});
     }
 
-    for (cl.methods) |*method| {
+    for (class_file.methods) |*method| {
         w.shrinkRetainingCapacity(0);
-        try formatMethod(allocator, cl, method, w.writer());
+        try formatMethod(allocator, class_file, method, w.writer());
         std.log.info("method: {s}", .{w.items});
+
+        // TODO: See descriptors.zig
         for (method.attributes) |*att| {
-            std.debug.print((" " ** 4) ++ "method attribute: '{s}'\n", .{att.getName(cl)});
-            if (std.mem.eql(u8, att.getName(cl), "Code")) {
-                var code = att.info;
-                var fbs = std.io.fixedBufferStream(code);
-                var fbs_reader = fbs.reader();
+            var data = try att.readData(allocator, class_file);
+            std.log.info((" " ** 4) ++ "method attribute: '{s}'", .{att.getName(class_file)});
             
-                var k = try opcodes.Operation.readFrom(fbs_reader);
-                while (true) {
-                    switch (k) {
-                        .ldc => |params| {
-                            std.log.info("{d}", .{params.index});
-                            std.log.info((" " ** 4) ++ "ldc: {s}", .{
-                                cl.resolveConstant(params.index)
-                            });
-                        },
-                        .ldc2_w => |l| {
-                            std.log.info("{d}", .{opcodes.getIndex(l)});
-                            std.log.info((" " ** 4) ++ "ldc2w: {s}", .{
-                                cl.resolveConstant(opcodes.getIndex(l))
-                            });
-                        },
-                        .getstatic => |params| {
-                            var index = opcodes.getIndex(params);
-                            var fieldref = cl.resolveConstant(index).fieldref;
+            switch (data) {
+                .code => |code_attribute| {
+                    var fbs = std.io.fixedBufferStream(code_attribute.code);
+                    var fbs_reader = fbs.reader();
+                
+                    var k = try opcodes.Operation.readFrom(fbs_reader);
+                    var curr: usize = 0x00;
 
-                            std.log.info((" " ** 4) ++ "GET STATIC: {s} {s}", .{
-                                fieldref.getClassInfo(cl.constant_pool).getName(cl.constant_pool), fieldref.getNameAndTypeInfo(cl.constant_pool).getName(cl.constant_pool)
-                            });
-                        },
-                        .invokevirtual => |params| {
-                            var index = opcodes.getIndex(params);
-                            var methodref = cl.resolveConstant(index).methodref;
-
-                            std.log.info((" " ** 4) ++ "INVOKE VIRTUAL: {s} {s}", .{
-                                methodref.getClassInfo(cl.constant_pool).getName(cl.constant_pool), methodref.getNameAndTypeInfo(cl.constant_pool).getName(cl.constant_pool)
-                            });
-                        },
-                        .invokespecial => |params| {
-                            var index = opcodes.getIndex(params);
-                            var methodref = cl.resolveConstant(index).methodref;
-
-                            std.log.info((" " ** 4) ++ "INVOKE VIRTUAL: {s} {s}", .{
-                                methodref.getClassInfo(cl.constant_pool).getName(cl.constant_pool), methodref.getNameAndTypeInfo(cl.constant_pool).getName(cl.constant_pool)
-                            });
-                        },
-                        .@"return",
-                        .ireturn,
-                        .lreturn,
-                        .freturn,
-                        .dreturn,
-                        .areturn => {
-                            std.log.info((" " ** 4) ++ "{s}", .{k});
-                            break;
-                        },
-                        else => std.log.info((" " ** 4) ++ "{s}", .{k})
+                    while (true) {
+                        switch (k) {
+                            .ifge, .ifle => |a| std.log.info((" " ** 8) ++ "{d} {s} (goto +{d}, {d})", .{curr, k, a, @intCast(i64, curr) + @intCast(i64, a)}),
+                            else => std.log.info((" " ** 8) ++ "{d} {s}", .{curr, k})
+                        }
+                        curr += k.sizeOf();
+                        k = opcodes.Operation.readFrom(fbs_reader) catch break;
                     }
-                    
-                    k = opcodes.Operation.readFrom(fbs_reader) catch break;
-                }
+                },
+                .unknown => {}
             }
         }
     }
 
-    for (cl.attributes) |*attribute| {
-        std.log.info("class attribute: '{s}'", .{attribute.getName(cl)});
+    for (class_file.attributes) |*attribute| {
+        std.log.info("class attribute: '{s}'", .{attribute.getName(class_file)});
     }
 }
 

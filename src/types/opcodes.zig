@@ -210,226 +210,31 @@ pub const Opcode = enum(u8) {
     }
 };
 
-pub const aload_params = packed struct {
-    index: u8
-};
+// TODO: Rename these; why did I even name these types like this????
+pub const LocalIndexOperation = u8;
+pub const ConstantPoolRefOperation = u16;
+pub const BranchToOffsetOperation = i16;
+pub const BranchToOffsetWideOperation = i32;
 
-pub const anewarray_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8
-};
-
-pub const astore_params = packed struct {
-    index: u8
-};
-
-pub const bipush_params = packed struct {
-    byte: u8
-};
-
-pub const checkcast_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8
-};
-
-pub const dload_params = packed struct {
-    index: u8
-};
-
-pub const dstore_params = packed struct {
-    index: u8
-};
-
-pub const fload_params = packed struct {
-    index: u8
-};
-
-pub const fstore_params = packed struct {
-    index: u8
-};
-
-pub const getfield_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8
-};
-
-pub const getstatic_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8
-};
-
-pub const goto_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-// Comparison and conditionals
-pub const if_acmpeq_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const if_acmpne_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const if_icmpeq_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const if_icmpge_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const if_icmpgt_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const if_icmple_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const if_icmplt_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const if_icmpne_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-//
-
-pub const ifeq_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const ifge_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const ifgt_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const ifle_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const iflt_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const ifne_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const ifnonnull_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const ifnull_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-// END comparison and conditionals
+pub const bipush_params = i8;
+pub const sipush_params = i16;
 
 pub const iinc_params = packed struct {
-    index: u8,
+    index: LocalIndexOperation,
     @"const": i8
 };
 
-pub const iload_params = packed struct {
-    index: u8
-};
-
 //
 
-pub const instanceof_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8
-};
-
 pub const invokedynamic_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8,
+    index: ConstantPoolRefOperation,
     pad: u16
 };
 
 pub const invokeinterface_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8,
+    index: ConstantPoolRefOperation,
     count: u8,
     pad: u8
-};
-
-pub const invokespecial_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8
-};
-
-pub const invokestatic_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8
-};
-
-pub const invokevirtual_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8
-};
-
-//
-
-pub const istore_params = packed struct {
-    index: u8
-};
-
-pub const jsr_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8
-};
-
-pub const jsr_w_params = packed struct {
-    branchbyte1: u8,
-    branchbyte2: u8,
-    branchbyte3: u8,
-    branchbyte4: u8
-};
-
-//
-
-pub const ldc_params = packed struct {
-    index: u8
-};
-
-pub const ldc_w_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8,
-};
-
-pub const ldc2_w_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8,
-};
-
-//
-
-pub const lload_params = packed struct {
-    index: u8
 };
 
 /// TODO
@@ -438,89 +243,68 @@ pub const lookupswitch_params = packed struct {
     placeholder: u128
 };
 
-pub const lstore_params = packed struct {
-    index: u8
-};
-
 pub const multianewarray_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8,
+    index: ConstantPoolRefOperation,
     dimensions: u8
-};
-
-pub const new_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8
-};
-
-pub const sipush_params = packed struct {
-    byte1: u8,
-    byte2: u8
-};
-
-pub const putfield_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8
-};
-
-pub const putstatic_params = packed struct {
-    indexbyte1: u8,
-    indexbyte2: u8
 };
 
 pub const Operation = union(Opcode) {
     const Self = @This();
 
-    aload: aload_params,
-    anewarray: anewarray_params,
-    astore: astore_params,
+    aload: LocalIndexOperation,
+    anewarray: ConstantPoolRefOperation,
+    astore: LocalIndexOperation,
     bipush: bipush_params,
-    checkcast: checkcast_params,
-    dload: dload_params,
-    dstore: dstore_params,
-    fload: fload_params,
-    fstore: fstore_params,
-    getfield: getfield_params,
-    getstatic: getstatic_params,
-    goto: goto_params,
-    if_acmpeq: if_acmpeq_params,
-    if_acmpne: if_acmpne_params,
-    if_icmpeq: if_icmpeq_params,
-    if_icmpge: if_icmpge_params,
-    if_icmpgt: if_icmpgt_params,
-    if_icmple: if_icmple_params,
-    if_icmplt: if_icmplt_params,
-    if_icmpne: if_icmpne_params,
-    ifeq: ifeq_params,
-    ifge: ifge_params,
-    ifgt: ifgt_params,
-    ifle: ifle_params,
-    iflt: iflt_params,
-    ifne: ifne_params,
-    ifnonnull: ifnonnull_params,
-    ifnull: ifnull_params,
+    checkcast: ConstantPoolRefOperation,
+    dload: LocalIndexOperation,
+    dstore: LocalIndexOperation,
+    fload: LocalIndexOperation,
+    fstore: LocalIndexOperation,
+    getfield: ConstantPoolRefOperation,
+    getstatic: ConstantPoolRefOperation,
+
+    goto: BranchToOffsetOperation,
+    if_acmpeq: BranchToOffsetOperation,
+    if_acmpne: BranchToOffsetOperation,
+    if_icmpeq: BranchToOffsetOperation,
+    if_icmpge: BranchToOffsetOperation,
+    if_icmpgt: BranchToOffsetOperation,
+    if_icmple: BranchToOffsetOperation,
+    if_icmplt: BranchToOffsetOperation,
+    if_icmpne: BranchToOffsetOperation,
+    ifeq: BranchToOffsetOperation,
+    ifge: BranchToOffsetOperation,
+    ifgt: BranchToOffsetOperation,
+    ifle: BranchToOffsetOperation,
+    iflt: BranchToOffsetOperation,
+    ifne: BranchToOffsetOperation,
+    ifnonnull: BranchToOffsetOperation,
+    ifnull: BranchToOffsetOperation,
+    jsr: BranchToOffsetOperation,
+
+    goto_w: BranchToOffsetWideOperation,
+    jsr_w: BranchToOffsetWideOperation,
+
     iinc: iinc_params,
-    iload: iload_params,
-    instanceof: instanceof_params,
+    iload: LocalIndexOperation,
+    instanceof: ConstantPoolRefOperation,
     invokedynamic: invokedynamic_params,
     invokeinterface: invokeinterface_params,
-    invokespecial: invokespecial_params,
-    invokestatic: invokestatic_params,
-    invokevirtual: invokevirtual_params,
-    istore: istore_params,
-    jsr: jsr_params,
-    jsr_w: jsr_w_params,
-    ldc: ldc_params,
-    ldc_w: ldc_w_params,
-    ldc2_w: ldc2_w_params,
+    invokespecial: ConstantPoolRefOperation,
+    invokestatic: ConstantPoolRefOperation,
+    invokevirtual: ConstantPoolRefOperation,
+    istore: LocalIndexOperation,
+    ldc: u8, // NOTE: This is not a local variable! It's probably for compat
+    ldc_w: ConstantPoolRefOperation,
+    ldc2_w: ConstantPoolRefOperation,
     lookupswitch: lookupswitch_params,
-    new: new_params,
+    new: ConstantPoolRefOperation,
     multianewarray: multianewarray_params,
-    lload: lload_params,
-    lstore: lstore_params,
+    lload: LocalIndexOperation,
+    lstore: LocalIndexOperation,
     sipush: sipush_params,
-    putstatic: putstatic_params,
-    putfield: putfield_params,
+    putstatic: ConstantPoolRefOperation,
+    putfield: ConstantPoolRefOperation,
 
     nop,
     aconst_null,
@@ -673,22 +457,34 @@ pub const Operation = union(Opcode) {
     monitorenter,
     monitorexit,
     wide,
-    goto_w,
     breakpoint,
     impdep1,
-    impdep2: void,
+    impdep2,
+
+    pub fn sizeOf(self: Self) usize {
+        inline for (std.meta.fields(Self)) |op| {
+            if (@enumToInt(std.meta.stringToEnum(Opcode, op.name).?) == @enumToInt(self)) {
+                return 1 + if (op.field_type == void) 0 else @sizeOf(op.field_type);
+            }
+        }
+
+        unreachable;
+    }
 
     pub fn readFrom(reader: anytype) !Self {
         var opcode = try reader.readIntBig(u8);
 
         inline for (std.meta.fields(Self)) |op| {
             if (@enumToInt(std.meta.stringToEnum(Opcode, op.name).?) == opcode) {
-                return @unionInit(Self, op.name, if (op.field_type == void) {} else try reader.readStruct(op.field_type));
+                return @unionInit(Self, op.name, if (op.field_type == void) {} else
+                    if (@typeInfo(op.field_type) == .Struct) try reader.readStruct(op.field_type)
+                    else if (@typeInfo(op.field_type) == .Int) try reader.readIntBig(op.field_type)
+                    else unreachable
+                );
             }
         }
 
-        // Unused/reserved instructions are noops
-        return .nop;
+        unreachable;
     }
 };
 
@@ -697,6 +493,5 @@ const std = @import("std");
 /// Get the index specified by an operation, if possible
 pub fn getIndex(inst: anytype) u16 {
     if (!@hasField(@TypeOf(inst), "indexbyte1")) @compileError("This instruction does not have an index!");
-    if (!@hasField(@TypeOf(inst), "indexbyte3")) return (@intCast(u16, @field(inst, "indexbyte1")) << @intCast(u16, 8) | @intCast(u16, @field(inst, "indexbyte2")));
-    unreachable;
+    return @intCast(u16, @field(inst, "indexbyte1")) << @intCast(u16, 8) | @intCast(u16, @field(inst, "indexbyte2"));
 }
