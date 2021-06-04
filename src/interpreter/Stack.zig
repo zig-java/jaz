@@ -27,7 +27,6 @@ pub fn popToStruct(self: *Self, comptime T: type) T {
             primitives.int => self.pop().int,
             primitives.long => self.pop().long,
             primitives.char => self.pop().char,
-            primitives.boolean => self.pop().boolean,
 
             primitives.float => self.pop().float,
             primitives.double => self.pop().double,

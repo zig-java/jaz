@@ -189,6 +189,12 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                                     try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
                                 }
                             },
+                            .ifne => |offset| {
+                                var value = stack_frame.operand_stack.pop().int;
+                                if (value != 0) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
                             .iflt => |offset| {
                                 var value = stack_frame.operand_stack.pop().int;
                                 if (value < 0) {
@@ -231,7 +237,18 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                                 var params = try allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len);
                                 for (method_desc.method.parameters) |param, i| {
                                     params[i] = switch (param.*) {
-                                        .int => .{ .int = stack_frame.operand_stack.pop().int },
+                                        .byte => .{ .byte = stack_frame.operand_stack.pop().byte },
+                                        .char => .{ .char = stack_frame.operand_stack.pop().char },
+                                        
+                                        .int, .boolean => .{ .int = stack_frame.operand_stack.pop().int },
+                                        .long => .{ .long = stack_frame.operand_stack.pop().long },
+                                        .short => .{ .short = stack_frame.operand_stack.pop().short },
+                                        
+                                        .float => .{ .float = stack_frame.operand_stack.pop().float },
+                                        .double => .{ .double = stack_frame.operand_stack.pop().double },
+
+                                        .object, .array, .method => unreachable,
+
                                         else => unreachable
                                     };
                                 }

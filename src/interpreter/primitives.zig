@@ -5,7 +5,6 @@ pub const short = i16;
 pub const int = i32;
 pub const long = i64;
 pub const char = u16;
-pub const boolean = bool;
 
 pub const float = f32;
 pub const double = f64;
@@ -22,7 +21,6 @@ pub const PrimitiveValue = union(enum) {
     int: int,
     long: long,
     char: char,
-    boolean: boolean, // NOTE: All boolean operations are mapped to int when operated on (0, 1)
 
     float: float,
     double: double,

@@ -4,13 +4,12 @@ package sample;
  * Compile me with Java 16!
  */
 public class Test {
-    public static boolean lorisBestie(int a, int b) {
-        return a == 420 ? false : true;
+    public static boolean lorisBestie(boolean isJoeMama) {
+        return !isJoeMama;
     }
     
     public static int test() {
-        if (lorisBestie(421, 20)) return 420;
-        else return 0;
+        return lorisBestie(false) ? 420 : 0;
     }
 
     public static void main(String[] args) {
