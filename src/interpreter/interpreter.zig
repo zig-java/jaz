@@ -68,12 +68,40 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                     // TODO: Refactor this garbage somehow
                     while (true) {
                         std.log.info((" " ** 8) ++ "{s}", .{k});
+                        // std.log.info((" " ** 8) ++ "{s}", .{s.local_variables.items[0]});
                         switch (k) {
                             .iload => |i| try s.operand_stack.push(.{ .int = s.local_variables.items[i].int }),
                             .iload_0 => try s.operand_stack.push(.{ .int = s.local_variables.items[0].int }),
                             .iload_1 => try s.operand_stack.push(.{ .int = s.local_variables.items[1].int }),
                             .iload_2 => try s.operand_stack.push(.{ .int = s.local_variables.items[2].int }),
                             .iload_3 => try s.operand_stack.push(.{ .int = s.local_variables.items[3].int }),
+
+                            .istore => |i| try s.setLocalVariable(i, .{ .int = s.operand_stack.pop().int }),
+                            .istore_0 => try s.setLocalVariable(0, .{ .int = s.operand_stack.pop().int }),
+                            .istore_1 => try s.setLocalVariable(1, .{ .int = s.operand_stack.pop().int }),
+                            .istore_2 => try s.setLocalVariable(2, .{ .int = s.operand_stack.pop().int }),
+                            .istore_3 => try s.setLocalVariable(3, .{ .int = s.operand_stack.pop().int }),
+
+                            .sipush => |value| try s.operand_stack.push(.{ .int = value }),
+                            .bipush => |value| try s.operand_stack.push(.{ .int = value }),
+
+                            .fload => |i| try s.operand_stack.push(.{ .float = s.local_variables.items[i].float }),
+                            .fload_0 => try s.operand_stack.push(.{ .float = s.local_variables.items[0].float }),
+                            .fload_1 => try s.operand_stack.push(.{ .float = s.local_variables.items[1].float }),
+                            .fload_2 => try s.operand_stack.push(.{ .float = s.local_variables.items[2].float }),
+                            .fload_3 => try s.operand_stack.push(.{ .float = s.local_variables.items[3].float }),
+
+                            .fstore => |i| try s.setLocalVariable(i, .{ .float = s.operand_stack.pop().float }),
+                            .fstore_0 => try s.setLocalVariable(0, .{ .float = s.operand_stack.pop().float }),
+                            .fstore_1 => try s.setLocalVariable(1, .{ .float = s.operand_stack.pop().float }),
+                            .fstore_2 => try s.setLocalVariable(2, .{ .float = s.operand_stack.pop().float }),
+                            .fstore_3 => try s.setLocalVariable(3, .{ .float = s.operand_stack.pop().float }),
+
+                            .dload => |i| try s.operand_stack.push(.{ .double = s.local_variables.items[i].double }),
+                            .dload_0 => try s.operand_stack.push(.{ .double = s.local_variables.items[0].double }),
+                            .dload_1 => try s.operand_stack.push(.{ .double = s.local_variables.items[1].double }),
+                            .dload_2 => try s.operand_stack.push(.{ .double = s.local_variables.items[2].double }),
+                            .dload_3 => try s.operand_stack.push(.{ .double = s.local_variables.items[3].double }),
 
                             .iconst_m1 => try s.operand_stack.push(.{ .int = -1 }),
                             .iconst_0 => try s.operand_stack.push(.{ .int = 0 }),
@@ -83,6 +111,47 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                             .iconst_4 => try s.operand_stack.push(.{ .int = 4 }),
                             .iconst_5 => try s.operand_stack.push(.{ .int = 5 }),
 
+                            .fconst_0 => try s.operand_stack.push(.{ .float = 0 }),
+                            .fconst_1 => try s.operand_stack.push(.{ .float = 1 }),
+                            .fconst_2 => try s.operand_stack.push(.{ .float = 2 }),
+
+                            .dconst_0 => try s.operand_stack.push(.{ .double = 0 }),
+                            .dconst_1 => try s.operand_stack.push(.{ .double = 1 }),
+
+                            .iadd => try s.operand_stack.push(.{ .int = s.operand_stack.pop().int + s.operand_stack.pop().int }),
+                            .imul => try s.operand_stack.push(.{ .int = s.operand_stack.pop().int * s.operand_stack.pop().int }),
+                            .isub => {
+                                var stackvals = s.operand_stack.popToStruct(struct {a: primitives.int, b: primitives.int});
+                                try s.operand_stack.push(.{ .int = stackvals.a - stackvals.b });
+                            },
+                            .idiv => {
+                                var stackvals = s.operand_stack.popToStruct(struct {numerator: primitives.int, denominator: primitives.int});
+                                try s.operand_stack.push(.{ .int = @divTrunc(stackvals.numerator, stackvals.denominator) });
+                            },
+
+                            .fadd => try s.operand_stack.push(.{ .float = s.operand_stack.pop().float + s.operand_stack.pop().float }),
+                            .fmul => try s.operand_stack.push(.{ .float = s.operand_stack.pop().float * s.operand_stack.pop().float }),
+                            .fsub => {
+                                var stackvals = s.operand_stack.popToStruct(struct {a: primitives.float, b: primitives.float});
+                                try s.operand_stack.push(.{ .float = stackvals.a - stackvals.b });
+                            },
+                            .fdiv => {
+                                var stackvals = s.operand_stack.popToStruct(struct {numerator: primitives.float, denominator: primitives.float});
+                                try s.operand_stack.push(.{ .float = stackvals.numerator / stackvals.denominator });
+                            },
+
+                            .dadd => try s.operand_stack.push(.{ .double = s.operand_stack.pop().double + s.operand_stack.pop().double }),
+                            .dmul => try s.operand_stack.push(.{ .double = s.operand_stack.pop().double * s.operand_stack.pop().double }),
+                            .dsub => {
+                                var stackvals = s.operand_stack.popToStruct(struct {a: primitives.double, b: primitives.double});
+                                try s.operand_stack.push(.{ .double = stackvals.a - stackvals.b });
+                            },
+                            .ddiv => {
+                                var stackvals = s.operand_stack.popToStruct(struct {numerator: primitives.double, denominator: primitives.double});
+                                try s.operand_stack.push(.{ .double = stackvals.numerator / stackvals.denominator });
+                            },
+
+                            // Conditionals
                             .if_icmple => |offset| {
                                 var stackvals = s.operand_stack.popToStruct(struct {value1: primitives.int, value2: primitives.int});
                                 if (stackvals.value1 <= stackvals.value2) {
@@ -96,8 +165,18 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                                 }
                             },
 
-                            .bipush => |value| try s.operand_stack.push(.{ .int = value }),
-                            .ireturn => return s.operand_stack.pop(),
+                            // Casts
+                            .i2b => try s.operand_stack.push(.{ .byte = @intCast(primitives.byte, s.operand_stack.pop().int) }),
+                            .i2c =>try s.operand_stack.push(.{ .char = @intCast(primitives.char, s.operand_stack.pop().int) }),
+                            .i2d => try s.operand_stack.push(.{ .double = @intToFloat(primitives.double, s.operand_stack.pop().int) }),
+                            .i2f => try s.operand_stack.push(.{ .float = @intToFloat(primitives.float, s.operand_stack.pop().int) }),
+                            .i2l => try s.operand_stack.push(.{ .long = @intCast(primitives.long, s.operand_stack.pop().int) }),
+                            .i2s => try s.operand_stack.push(.{ .short = @intCast(primitives.short, s.operand_stack.pop().int) }),
+
+                            .f2i => try s.operand_stack.push(.{ .int = @floatToInt(primitives.int, s.operand_stack.pop().float) }),
+
+                            // Return
+                            .ireturn, .freturn, .dreturn => return s.operand_stack.pop(),
 
                             else => {}
                         }

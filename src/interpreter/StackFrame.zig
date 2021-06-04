@@ -18,6 +18,12 @@ pub fn init(allocator: *std.mem.Allocator, class_file: ClassFile) Self {
     };
 }
 
+pub fn setLocalVariable(self: *Self, index: usize, value: primitives.PrimitiveValue) !void {
+    try self.local_variables.ensureCapacity(index + 1);
+    self.local_variables.expandToCapacity();
+    self.local_variables.items[index] = value;
+}
+
 pub fn deinit(self: *Self) void {
     self.local_variables.deinit();
     self.operand_stack.deinit();

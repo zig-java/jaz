@@ -1,6 +1,7 @@
 pub const @"null" = void;
 
 pub const byte = i8;
+pub const short = i16;
 pub const int = i32;
 pub const long = i64;
 pub const char = u16;
@@ -16,6 +17,7 @@ pub const PrimitiveValue = union(enum) {
     @"null": @"null",
     
     byte: byte,
+    short: short,
     int: int,
     long: long,
     char: char,
