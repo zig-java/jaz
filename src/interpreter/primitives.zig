@@ -1,4 +1,5 @@
 pub const @"null" = void;
+pub const @"void" = void;
 
 pub const byte = i8;
 pub const short = i16;
@@ -14,7 +15,7 @@ pub const returnAddress = usize;
 
 pub const PrimitiveValue = union(enum) {
     @"null": @"null",
-    @"void": void,
+    @"void": @"void",
 
     byte: byte,
     short: short,

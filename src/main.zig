@@ -1,19 +1,21 @@
 const std = @import("std");
-const interpreter = @import("interpreter/interpreter.zig");
-const ClassFile = @import("types/ClassFile.zig");
-const primitives = @import("interpreter/primitives.zig");
+const Interpreter = @import("interpreter/Interpreter.zig");
+const ClassResolver = @import("interpreter/ClassResolver.zig");
 
 pub fn main() anyerror!void {
     const allocator = std.heap.page_allocator;
 
-    var testClass = try std.fs.cwd().openFile("sample/Test.class", .{});
-    defer testClass.close();
+    var cp = [_][]const u8{"C:/Programming/Zig/zaj/test/src"};
+    var class_resolver = try ClassResolver.init(allocator, &cp);
+    // try class_resolver.resolve("sample.Test.test");
+    std.log.info("{s}", .{try class_resolver.resolve("jaztest.Test")});
+    // var interpreter = Interpreter.init(allocator, class_resolver);
+    // var s = interpreter.getMethod("sample.Test.test", .{
+    //     .param_types = &[_].{},
+    //     .return_type = void,
+    // });
 
-    var testReader = testClass.reader();
-    var class_file = try ClassFile.readFrom(allocator, testReader);
-
-    var args = [_]primitives.PrimitiveValue{};
-    std.log.info("Value = {s}", .{(try interpreter.interpret(allocator, class_file, "test", &args))});
+    // s.call(.{});
 }
 
 test {

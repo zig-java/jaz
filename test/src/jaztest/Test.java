@@ -1,4 +1,4 @@
-package sample;
+package jaztest;
 
 /**
  * Compile me with Java 16!
