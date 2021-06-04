@@ -13,9 +13,7 @@ pub fn main() anyerror!void {
     var class_file = try ClassFile.readFrom(allocator, testReader);
 
     var args = [_]primitives.PrimitiveValue{};
-    std.log.info("Value = {s}", .{
-        (try interpreter.interpret(allocator, class_file, "test", &args))
-    });
+    std.log.info("Value = {s}", .{(try interpreter.interpret(allocator, class_file, "test", &args))});
 }
 
 test {

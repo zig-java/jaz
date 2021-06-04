@@ -15,7 +15,7 @@ pub const returnAddress = usize;
 pub const PrimitiveValue = union(enum) {
     @"null": @"null",
     @"void": void,
-    
+
     byte: byte,
     short: short,
     int: int,
@@ -26,5 +26,5 @@ pub const PrimitiveValue = union(enum) {
     double: double,
 
     reference: reference,
-    returnAddress: returnAddress
+    returnAddress: returnAddress,
 };

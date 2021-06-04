@@ -14,7 +14,7 @@ pub fn init(allocator: *std.mem.Allocator, class_file: ClassFile) Self {
     return .{
         .local_variables = std.ArrayList(primitives.PrimitiveValue).init(allocator),
         .operand_stack = Stack.init(allocator),
-        .class_file = class_file
+        .class_file = class_file,
     };
 }
 

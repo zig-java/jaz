@@ -15,7 +15,7 @@ pub const MethodAccessFlags = struct {
     native: bool = false,
     abstract: bool = false,
     strict: bool = false,
-    synthetic: bool = false
+    synthetic: bool = false,
 };
 
 pub const MethodInfo = struct {
@@ -38,7 +38,7 @@ pub const MethodInfo = struct {
         var access_flags_u = try reader.readIntBig(u16);
         var name_index = try reader.readIntBig(u16);
         var descriptor_index = try reader.readIntBig(u16);
-        
+
         var att_count = try reader.readIntBig(u16);
         var att = try allocator.alloc(attributes.AttributeInfo, att_count);
         for (att) |*a| a.* = try attributes.AttributeInfo.readFrom(allocator, reader);
@@ -60,7 +60,7 @@ pub const MethodInfo = struct {
             },
             .name_index = name_index,
             .descriptor_index = descriptor_index,
-            .attributes = att
+            .attributes = att,
         };
     }
 };

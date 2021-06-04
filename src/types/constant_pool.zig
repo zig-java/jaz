@@ -35,7 +35,7 @@ pub const ConstantPoolClassInfo = packed struct {
 
 pub const ConstantPoolRefInfo = packed struct {
     const Self = @This();
-    
+
     /// Points to class or interface
     class_index: u16,
     /// Points to a `ConstantPoolNameAndTypeInfo`
@@ -51,34 +51,24 @@ pub const ConstantPoolRefInfo = packed struct {
 };
 
 /// Points to a `ConstantPoolUtf8Info`
-pub const ConstantPoolStringInfo = packed struct {
-    string_index: u16
-};
+pub const ConstantPoolStringInfo = packed struct { string_index: u16 };
 
 /// Represents 4-byte (32 bit) integer
-pub const ConstantPoolIntegerInfo = packed struct {
-    bytes: u32
-};
+pub const ConstantPoolIntegerInfo = packed struct { bytes: u32 };
 
 /// Represents 4-byte (32 bit) float
-pub const ConstantPoolFloatInfo = packed struct {
-    bytes: u32
-};
+pub const ConstantPoolFloatInfo = packed struct { bytes: u32 };
 
 pub const ConstantPoolLongInfo = packed struct {
-    // high_bytes: u32,
-    // low_bytes: u32
-    bingus: u64
-};
+// high_bytes: u32,
+// low_bytes: u32
+bingus: u64 };
 
-pub const ConstantPoolDoubleInfo = packed struct {
-    high_bytes: u32,
-    low_bytes: u32
-};
+pub const ConstantPoolDoubleInfo = packed struct { high_bytes: u32, low_bytes: u32 };
 
 pub const ConstantPoolNameAndTypeInfo = packed struct {
     const Self = @This();
-    
+
     /// Points to a `ConstantPoolUtf8Info` describing a unique field or method name or <init>
     name_index: u16,
     /// Points to a `ConstantPoolUtf8Info` representing a field or method descriptor
@@ -103,27 +93,15 @@ pub const ConstantPoolUtf8Info = struct {
         var bytes = try allocator.alloc(u8, length);
         _ = try reader.readAll(bytes);
 
-        return Self{
-            .bytes = bytes
-        };
+        return Self{ .bytes = bytes };
     }
 };
 
-pub const ConstantPoolReferenceKind = enum(u8) {
-    get_field = 1,
-    get_static = 2,
-    put_field = 3,
-    put_static = 4,
-    invoke_virtual = 5,
-    invoke_static = 6,
-    invoke_special = 7,
-    new_invoke_special = 8,
-    invoke_interface = 9
-};
+pub const ConstantPoolReferenceKind = enum(u8) { get_field = 1, get_static = 2, put_field = 3, put_static = 4, invoke_virtual = 5, invoke_static = 6, invoke_special = 7, new_invoke_special = 8, invoke_interface = 9 };
 
 pub const ConstantPoolMethodHandleInfo = struct {
     const Self = @This();
-    
+
     reference_kind: ConstantPoolReferenceKind,
     /// Based on ref kind:
     /// 1, 2, 3, 4 - points to fieldref
@@ -142,18 +120,13 @@ pub const ConstantPoolMethodHandleInfo = struct {
     pub fn getReference(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolInfo {
         var ref = constant_pool[self.reference_index - 1];
         switch (self.reference_kind) {
-            .get_field,
-            .get_static,
-            .put_field,
-            .put_static => std.debug.assert(std.meta.activeTag(ref) == .fieldref),
-            
-            .invoke_virtual,
-            .new_invoke_special => std.debug.assert(std.meta.activeTag(ref) == .methodref),
+            .get_field, .get_static, .put_field, .put_static => std.debug.assert(std.meta.activeTag(ref) == .fieldref),
 
-            .invoke_static,
-            .invoke_special => std.debug.assert(std.meta.activeTag(ref) == .methodref or std.meta.activeTag(ref) == .interface_methodref),
-            
-            .invoke_interface => std.debug.assert(std.meta.activeTag(ref) == .interface_methodref)
+            .invoke_virtual, .new_invoke_special => std.debug.assert(std.meta.activeTag(ref) == .methodref),
+
+            .invoke_static, .invoke_special => std.debug.assert(std.meta.activeTag(ref) == .methodref or std.meta.activeTag(ref) == .interface_methodref),
+
+            .invoke_interface => std.debug.assert(std.meta.activeTag(ref) == .interface_methodref),
         }
         return ref;
     }
@@ -237,8 +210,7 @@ pub const ConstantPoolInfo = union(ConstantPoolTag) {
             if (tag == @enumToInt(this_tag_value)) {
                 const T = std.meta.fields(Self)[i].field_type;
                 var k: T = undefined;
-                if (@hasDecl(T, "readFrom")) k = try T.readFrom(allocator, reader)
-                else {
+                if (@hasDecl(T, "readFrom")) k = try T.readFrom(allocator, reader) else {
                     k = try reader.readStruct(T);
                     if (std.Target.current.cpu.arch.endian() == .Little) {
                         inline for (std.meta.fields(T)) |f2| @field(k, f2.name) = @byteSwap(f2.field_type, @field(k, f2.name));

@@ -21,7 +21,7 @@ pub fn formatMethod(allocator: *std.mem.Allocator, class_file: ClassFile, method
 
     var desc = method.getDescriptor(class_file);
     var fbs = std.io.fixedBufferStream(desc);
-    
+
     // Write human readable return descriptor
     var descriptor = try descriptors.parse(allocator, fbs.reader());
     try descriptor.method.return_type.humanStringify(writer);
@@ -52,17 +52,17 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
         for (method.attributes) |*att| {
             var data = try att.readData(allocator, class_file);
             std.log.info((" " ** 4) ++ "method attribute: '{s}'", .{att.getName(class_file)});
-            
+
             switch (data) {
                 .code => |code_attribute| {
                     var stack_frame = StackFrame.init(allocator, class_file);
                     defer stack_frame.deinit();
 
                     try stack_frame.local_variables.appendSlice(args);
-                    
+
                     var fbs = std.io.fixedBufferStream(code_attribute.code);
                     var fbs_reader = fbs.reader();
-                
+
                     var opcode = try opcodes.Operation.readFrom(fbs_reader);
 
                     // TODO: Refactor this garbage somehow
@@ -87,7 +87,7 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                             .ldc => |index| {
                                 switch (stack_frame.class_file.resolveConstant(index)) {
                                     .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(f32, f) }),
-                                    else => unreachable
+                                    else => unreachable,
                                 }
                             },
                             .iinc => |iinc| stack_frame.local_variables.items[iinc.index].int += iinc.@"const",
@@ -128,33 +128,33 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                             .iadd => try stack_frame.operand_stack.push(.{ .int = stack_frame.operand_stack.pop().int + stack_frame.operand_stack.pop().int }),
                             .imul => try stack_frame.operand_stack.push(.{ .int = stack_frame.operand_stack.pop().int * stack_frame.operand_stack.pop().int }),
                             .isub => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct {a: primitives.int, b: primitives.int});
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { a: primitives.int, b: primitives.int });
                                 try stack_frame.operand_stack.push(.{ .int = stackvals.a - stackvals.b });
                             },
                             .idiv => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct {numerator: primitives.int, denominator: primitives.int});
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
                                 try stack_frame.operand_stack.push(.{ .int = @divTrunc(stackvals.numerator, stackvals.denominator) });
                             },
 
                             .fadd => try stack_frame.operand_stack.push(.{ .float = stack_frame.operand_stack.pop().float + stack_frame.operand_stack.pop().float }),
                             .fmul => try stack_frame.operand_stack.push(.{ .float = stack_frame.operand_stack.pop().float * stack_frame.operand_stack.pop().float }),
                             .fsub => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct {a: primitives.float, b: primitives.float});
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { a: primitives.float, b: primitives.float });
                                 try stack_frame.operand_stack.push(.{ .float = stackvals.a - stackvals.b });
                             },
                             .fdiv => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct {numerator: primitives.float, denominator: primitives.float});
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.float, denominator: primitives.float });
                                 try stack_frame.operand_stack.push(.{ .float = stackvals.numerator / stackvals.denominator });
                             },
 
                             .dadd => try stack_frame.operand_stack.push(.{ .double = stack_frame.operand_stack.pop().double + stack_frame.operand_stack.pop().double }),
                             .dmul => try stack_frame.operand_stack.push(.{ .double = stack_frame.operand_stack.pop().double * stack_frame.operand_stack.pop().double }),
                             .dsub => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct {a: primitives.double, b: primitives.double});
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { a: primitives.double, b: primitives.double });
                                 try stack_frame.operand_stack.push(.{ .double = stackvals.a - stackvals.b });
                             },
                             .ddiv => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct {numerator: primitives.double, denominator: primitives.double});
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.double, denominator: primitives.double });
                                 try stack_frame.operand_stack.push(.{ .double = stackvals.numerator / stackvals.denominator });
                             },
 
@@ -163,21 +163,21 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                             .goto => |offset| {
                                 try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
                             },
-                            
+
                             .if_icmple => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct {value1: primitives.int, value2: primitives.int});
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
                                 if (stackvals.value1 <= stackvals.value2) {
                                     try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
                                 }
                             },
                             .if_icmpge => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct {value1: primitives.int, value2: primitives.int});
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
                                 if (stackvals.value1 >= stackvals.value2) {
                                     try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
                                 }
                             },
                             .if_icmpne => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct {value1: primitives.int, value2: primitives.int});
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
                                 if (stackvals.value1 != stackvals.value2) {
                                     try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
                                 }
@@ -209,15 +209,13 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                             },
 
                             .fcmpg, .fcmpl => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct {value1: primitives.float, value2: primitives.float});
-                                try stack_frame.operand_stack.push(.{
-                                    .int = if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else @as(primitives.int, -1)
-                                });
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.float, value2: primitives.float });
+                                try stack_frame.operand_stack.push(.{ .int = if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else @as(primitives.int, -1) });
                             },
 
                             // Casts
                             .i2b => try stack_frame.operand_stack.push(.{ .byte = @intCast(primitives.byte, stack_frame.operand_stack.pop().int) }),
-                            .i2c =>try stack_frame.operand_stack.push(.{ .char = @intCast(primitives.char, stack_frame.operand_stack.pop().int) }),
+                            .i2c => try stack_frame.operand_stack.push(.{ .char = @intCast(primitives.char, stack_frame.operand_stack.pop().int) }),
                             .i2d => try stack_frame.operand_stack.push(.{ .double = @intToFloat(primitives.double, stack_frame.operand_stack.pop().int) }),
                             .i2f => try stack_frame.operand_stack.push(.{ .float = @intToFloat(primitives.float, stack_frame.operand_stack.pop().int) }),
                             .i2l => try stack_frame.operand_stack.push(.{ .long = @intCast(primitives.long, stack_frame.operand_stack.pop().int) }),
@@ -229,7 +227,7 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                             .invokestatic => |index| {
                                 var methodref = stack_frame.class_file.resolveConstant(index).methodref;
                                 var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
-                                
+
                                 var name = nti.getName(class_file.constant_pool);
                                 var descriptor_str = nti.getDescriptor(class_file.constant_pool);
                                 var method_desc = try descriptors.parseString(allocator, descriptor_str);
@@ -239,24 +237,22 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                                     params[i] = switch (param.*) {
                                         .byte => .{ .byte = stack_frame.operand_stack.pop().byte },
                                         .char => .{ .char = stack_frame.operand_stack.pop().char },
-                                        
+
                                         .int, .boolean => .{ .int = stack_frame.operand_stack.pop().int },
                                         .long => .{ .long = stack_frame.operand_stack.pop().long },
                                         .short => .{ .short = stack_frame.operand_stack.pop().short },
-                                        
+
                                         .float => .{ .float = stack_frame.operand_stack.pop().float },
                                         .double => .{ .double = stack_frame.operand_stack.pop().double },
 
                                         .object, .array, .method => unreachable,
 
-                                        else => unreachable
+                                        else => unreachable,
                                     };
                                 }
                                 std.mem.reverse(primitives.PrimitiveValue, params);
 
-                                try stack_frame.operand_stack.push(
-                                    try interpret(allocator, class_file, name, params)
-                                );
+                                try stack_frame.operand_stack.push(try interpret(allocator, class_file, name, params));
 
                                 std.log.info("return to method: {s}", .{descriptor_buf.items});
                             },
@@ -265,12 +261,12 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                             .ireturn, .freturn, .dreturn => return stack_frame.operand_stack.pop(),
                             .@"return" => return .@"void",
 
-                            else => {}
+                            else => {},
                         }
                         opcode = opcodes.Operation.readFrom(fbs_reader) catch break;
                     }
                 },
-                .unknown => {}
+                .unknown => {},
             }
         }
     }
@@ -279,14 +275,14 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
 }
 
 pub fn interpretA() !void {
-    std.log.info("this class: {s} {s}", .{class_file.this_class.getName(class_file.constant_pool), class_file.access_flags});
+    std.log.info("this class: {s} {s}", .{ class_file.this_class.getName(class_file.constant_pool), class_file.access_flags });
 
     for (class_file.constant_pool) |cp| {
         switch (cp) {
             .utf8, .name_and_type, .string => {},
             .fieldref, .methodref, .interface_methodref => |ref| {
                 var nti = ref.getNameAndTypeInfo(class_file.constant_pool);
-                std.log.info("ref: class '{s}' name '{s} {s}'", .{ref.getClassInfo(class_file.constant_pool).getName(class_file.constant_pool), nti.getName(class_file.constant_pool), nti.getDescriptor(class_file.constant_pool)});
+                std.log.info("ref: class '{s}' name '{s} {s}'", .{ ref.getClassInfo(class_file.constant_pool).getName(class_file.constant_pool), nti.getName(class_file.constant_pool), nti.getDescriptor(class_file.constant_pool) });
             },
             .class => |clz| {
                 std.log.info("class: {s}", .{clz.getName(class_file.constant_pool)});
@@ -294,7 +290,7 @@ pub fn interpretA() !void {
             .method_handle => |handle| {
                 std.log.info("method handle: {s}", .{handle.getReference(class_file.constant_pool)});
             },
-            else => |o| std.log.info("OTHER: {s}", .{o})
+            else => |o| std.log.info("OTHER: {s}", .{o}),
         }
     }
 
@@ -303,7 +299,7 @@ pub fn interpretA() !void {
         defer desc.deinit(allocator);
 
         try desc.toHumanStringArrayList(&w);
-        std.log.info("field: '{s}' of type '{s}'", .{field.getName(class_file), w.items});
+        std.log.info("field: '{s}' of type '{s}'", .{ field.getName(class_file), w.items });
     }
 
     for (class_file.attributes) |*attribute| {

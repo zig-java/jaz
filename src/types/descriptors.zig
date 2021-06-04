@@ -62,7 +62,7 @@ pub const Descriptor = union(enum) {
                 try writer.writeByte('[');
                 try a.stringify(writer);
             },
-            .method => |m| try m.stringify(writer)
+            .method => |m| try m.stringify(writer),
         }
     }
 
@@ -99,7 +99,7 @@ pub const Descriptor = union(enum) {
                 try a.humanStringify(writer);
                 _ = try writer.writeAll("[]");
             },
-            .method => error.NotImplemented
+            .method => error.NotImplemented,
         };
     }
 
@@ -114,7 +114,7 @@ pub const Descriptor = union(enum) {
             .array => |*a| a.*.deinit(allocator),
             .method => |*m| m.*.deinit(allocator),
 
-            else => {}
+            else => {},
         }
         allocator.destroy(self);
     }
@@ -135,7 +135,7 @@ fn parse_(allocator: *std.mem.Allocator, reader: anytype) anyerror!?*Descriptor 
         'I' => return try c(allocator, .int),
         'J' => return try c(allocator, .long),
         'S' => return try c(allocator, .short),
-        
+
         'F' => return try c(allocator, .float),
         'D' => return try c(allocator, .double),
 
@@ -169,7 +169,7 @@ fn parse_(allocator: *std.mem.Allocator, reader: anytype) anyerror!?*Descriptor 
         },
         ')' => return null,
 
-        else => unreachable
+        else => unreachable,
     }
 }
 
@@ -214,19 +214,14 @@ test "Descriptors: Write/parse method that returns an object and accepts an inte
 
     var object = Descriptor{ .object = "java/lang/Object" };
 
-    var desc = Descriptor{
-        .method = .{
-            .parameters = &.{&int, &double, &thread},
-            .return_type = &object
-        }
-    };
+    var desc = Descriptor{ .method = .{ .parameters = &.{ &int, &double, &thread }, .return_type = &object } };
 
     var out_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer out_buf.deinit();
 
     try desc.stringify(out_buf.writer());
     try std.testing.expectEqualStrings(test_string, out_buf.items);
-    
+
     var fbs = std.io.fixedBufferStream(test_string);
     var parsed_desc = try parse(std.testing.allocator, fbs.reader());
     defer parsed_desc.deinit(std.testing.allocator);

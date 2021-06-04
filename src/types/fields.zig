@@ -12,7 +12,7 @@ pub const FieldAccessFlags = struct {
     @"volatile": bool = false,
     transient: bool = false,
     synthetic: bool = false,
-    enum_member: bool = false
+    enum_member: bool = false,
 };
 
 pub const FieldInfo = struct {
@@ -35,7 +35,7 @@ pub const FieldInfo = struct {
         var access_flags_u = try reader.readIntBig(u16);
         var name_index = try reader.readIntBig(u16);
         var descriptor_index = try reader.readIntBig(u16);
-        
+
         var att_count = try reader.readIntBig(u16);
         var att = try allocator.alloc(attributes.AttributeInfo, att_count);
         for (att) |*a| a.* = try attributes.AttributeInfo.readFrom(allocator, reader);
@@ -54,7 +54,7 @@ pub const FieldInfo = struct {
             },
             .name_index = name_index,
             .descriptor_index = descriptor_index,
-            .attributes = att
+            .attributes = att,
         };
     }
 };

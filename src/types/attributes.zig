@@ -1,15 +1,10 @@
 const std = @import("std");
 const ClassFile = @import("ClassFile.zig");
 
-const AttributeMap = std.ComptimeStringMap([]const u8, .{
-    .{"Code", "code"}
-});
+const AttributeMap = std.ComptimeStringMap([]const u8, .{.{ "Code", "code" }});
 
 // TODO: Implement all attribute types
-pub const AttributeData = union(enum) {
-    code: CodeAttribute,
-    unknown: void
-};
+pub const AttributeData = union(enum) { code: CodeAttribute, unknown: void };
 
 pub const AttributeInfo = struct {
     const Self = @This();
@@ -21,18 +16,15 @@ pub const AttributeInfo = struct {
     pub fn getName(self: Self, class_file: ClassFile) []const u8 {
         return class_file.resolveConstant(self.attribute_name_index).utf8.bytes;
     }
-    
+
     pub fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {
         var attribute_name_index = try reader.readIntBig(u16);
         var attribute_length = try reader.readIntBig(u32);
-        
+
         var info = try allocator.alloc(u8, attribute_length);
         _ = try reader.readAll(info);
 
-        return Self{
-            .attribute_name_index = attribute_name_index,
-            .info = info
-        };
+        return Self{ .attribute_name_index = attribute_name_index, .info = info };
     }
 
     pub fn readData(self: Self, allocator: *std.mem.Allocator, class_file: ClassFile) !AttributeData {
@@ -41,9 +33,9 @@ pub const AttributeInfo = struct {
 
         inline for (std.meta.fields(AttributeData)) |d| {
             if (AttributeMap.get(name) != null)
-            if (std.mem.eql(u8, AttributeMap.get(name).?, d.name)) {
-                return @unionInit(AttributeData, d.name, if (d.field_type == void) {} else try @field(d.field_type, "readFrom")(allocator, fbs.reader()));
-            };
+                if (std.mem.eql(u8, AttributeMap.get(name).?, d.name)) {
+                    return @unionInit(AttributeData, d.name, if (d.field_type == void) {} else try @field(d.field_type, "readFrom")(allocator, fbs.reader()));
+                };
         }
 
         return .unknown;
@@ -52,7 +44,7 @@ pub const AttributeInfo = struct {
 
 pub const ExceptionTableEntry = packed struct {
     const Self = @This();
-    
+
     /// Where the exception handler becomes active (inclusive)
     start_pc: u16,
     /// Where it becomes inactive (exclusive)
@@ -101,7 +93,7 @@ pub const CodeAttribute = struct {
             .code = code,
             .exception_table = exception_table,
 
-            .attributes = attributes
+            .attributes = attributes,
         };
     }
 };

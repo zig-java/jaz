@@ -219,34 +219,20 @@ pub const BranchToOffsetWideOperation = i32;
 pub const bipush_params = i8;
 pub const sipush_params = i16;
 
-pub const iinc_params = packed struct {
-    index: LocalIndexOperation,
-    @"const": i8
-};
+pub const iinc_params = packed struct { index: LocalIndexOperation, @"const": i8 };
 
 //
 
-pub const invokedynamic_params = packed struct {
-    index: ConstantPoolRefOperation,
-    pad: u16
-};
+pub const invokedynamic_params = packed struct { index: ConstantPoolRefOperation, pad: u16 };
 
-pub const invokeinterface_params = packed struct {
-    index: ConstantPoolRefOperation,
-    count: u8,
-    pad: u8
-};
+pub const invokeinterface_params = packed struct { index: ConstantPoolRefOperation, count: u8, pad: u8 };
 
 /// TODO
 pub const lookupswitch_params = packed struct {
-    // TODO!!!!
-    placeholder: u128
-};
+// TODO!!!!
+placeholder: u128 };
 
-pub const multianewarray_params = packed struct {
-    index: ConstantPoolRefOperation,
-    dimensions: u8
-};
+pub const multianewarray_params = packed struct { index: ConstantPoolRefOperation, dimensions: u8 };
 
 pub const Operation = union(Opcode) {
     const Self = @This();
@@ -476,11 +462,7 @@ pub const Operation = union(Opcode) {
 
         inline for (std.meta.fields(Self)) |op| {
             if (@enumToInt(std.meta.stringToEnum(Opcode, op.name).?) == opcode) {
-                return @unionInit(Self, op.name, if (op.field_type == void) {} else
-                    if (@typeInfo(op.field_type) == .Struct) try reader.readStruct(op.field_type)
-                    else if (@typeInfo(op.field_type) == .Int) try reader.readIntBig(op.field_type)
-                    else unreachable
-                );
+                return @unionInit(Self, op.name, if (op.field_type == void) {} else if (@typeInfo(op.field_type) == .Struct) try reader.readStruct(op.field_type) else if (@typeInfo(op.field_type) == .Int) try reader.readIntBig(op.field_type) else unreachable);
             }
         }
 

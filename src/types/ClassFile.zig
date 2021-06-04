@@ -18,7 +18,7 @@ pub const AccessFlags = struct {
     synthetic: bool = false,
     annotation: bool = false,
     enum_class: bool = false,
-    module: bool = false
+    module: bool = false,
 };
 
 minor_version: u16,
@@ -53,7 +53,7 @@ pub fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {
     var constant_pool_count = try reader.readIntBig(u16);
     var constant_pool = try allocator.alloc(constant_pool_.ConstantPoolInfo, constant_pool_count - 1);
     for (constant_pool) |*cp| cp.* = try constant_pool_.ConstantPoolInfo.readFrom(allocator, reader);
-    
+
     var access_flags_u = try reader.readIntBig(u16);
     var access_flags = AccessFlags{
         .public = utils.isPresent(u16, access_flags_u, 0x0001),
@@ -105,6 +105,6 @@ pub fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {
         .interfaces = interfaces,
         .fields = fieldss,
         .methods = methodss,
-        .attributes = attributess
+        .attributes = attributess,
     };
 }

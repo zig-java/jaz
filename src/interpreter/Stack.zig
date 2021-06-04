@@ -6,9 +6,7 @@ const Self = @This();
 array_list: std.ArrayList(primitives.PrimitiveValue),
 
 pub fn init(allocator: *std.mem.Allocator) Self {
-    return .{
-        .array_list = std.ArrayList(primitives.PrimitiveValue).init(allocator)
-    };
+    return .{ .array_list = std.ArrayList(primitives.PrimitiveValue).init(allocator) };
 }
 
 pub fn pop(self: *Self) primitives.PrimitiveValue {
@@ -31,12 +29,12 @@ pub fn popToStruct(self: *Self, comptime T: type) T {
             primitives.float => self.pop().float,
             primitives.double => self.pop().double,
 
-            else => @compileLog("Type needs to be primitive!")
+            else => @compileLog("Type needs to be primitive!"),
         };
     }
     return res;
 }
-    
+
 pub fn push(self: *Self, value: primitives.PrimitiveValue) !void {
     try self.array_list.append(value);
 }
