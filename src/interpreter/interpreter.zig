@@ -84,6 +84,13 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
 
                             .sipush => |value| try s.operand_stack.push(.{ .int = value }),
                             .bipush => |value| try s.operand_stack.push(.{ .int = value }),
+                            .ldc => |index| {
+                                switch (s.class_file.resolveConstant(index)) {
+                                    .float => |f| try s.operand_stack.push(.{ .float = @bitCast(f32, f) }),
+                                    else => unreachable
+                                }
+                            },
+                            .iinc => |iinc| s.local_variables.items[iinc.index].int += iinc.@"const",
 
                             .fload => |i| try s.operand_stack.push(.{ .float = s.local_variables.items[i].float }),
                             .fload_0 => try s.operand_stack.push(.{ .float = s.local_variables.items[0].float }),
@@ -151,10 +158,21 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                                 try s.operand_stack.push(.{ .double = stackvals.numerator / stackvals.denominator });
                             },
 
-                            // Conditionals
+                            // Conditionals / jumps
+                            // TODO: Implement all conditions (int comparison, 0 comparison, etc.)
+                            .goto => |offset| {
+                                try fbs.seekBy(offset - @intCast(i16, k.sizeOf()));
+                            },
+                            
                             .if_icmple => |offset| {
                                 var stackvals = s.operand_stack.popToStruct(struct {value1: primitives.int, value2: primitives.int});
                                 if (stackvals.value1 <= stackvals.value2) {
+                                    try fbs.seekBy(offset - @intCast(i16, k.sizeOf()));
+                                }
+                            },
+                            .if_icmpge => |offset| {
+                                var stackvals = s.operand_stack.popToStruct(struct {value1: primitives.int, value2: primitives.int});
+                                if (stackvals.value1 >= stackvals.value2) {
                                     try fbs.seekBy(offset - @intCast(i16, k.sizeOf()));
                                 }
                             },
@@ -163,6 +181,26 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
                                 if (stackvals.value1 != stackvals.value2) {
                                     try fbs.seekBy(offset - @intCast(i16, k.sizeOf()));
                                 }
+                            },
+
+                            .iflt => |offset| {
+                                var value = s.operand_stack.pop().int;
+                                if (value < 0) {
+                                    try fbs.seekBy(offset - @intCast(i16, k.sizeOf()));
+                                }
+                            },
+                            .ifle => |offset| {
+                                var value = s.operand_stack.pop().int;
+                                if (value <= 0) {
+                                    try fbs.seekBy(offset - @intCast(i16, k.sizeOf()));
+                                }
+                            },
+
+                            .fcmpg, .fcmpl => {
+                                var stackvals = s.operand_stack.popToStruct(struct {value1: primitives.float, value2: primitives.float});
+                                try s.operand_stack.push(.{
+                                    .int = if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else @as(primitives.int, -1)
+                                });
                             },
 
                             // Casts
@@ -177,6 +215,7 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
 
                             // Return
                             .ireturn, .freturn, .dreturn => return s.operand_stack.pop(),
+                            .@"return" => return .@"void",
 
                             else => {}
                         }
@@ -188,7 +227,7 @@ pub fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_na
         }
     }
 
-    return primitives.PrimitiveValue{ .@"null" = {} };
+    return .@"void";
 }
 
 pub fn interpretA() !void {

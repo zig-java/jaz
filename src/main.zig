@@ -12,9 +12,9 @@ pub fn main() anyerror!void {
     var testReader = testClass.reader();
     var class_file = try ClassFile.readFrom(allocator, testReader);
 
-    var args = [_]primitives.PrimitiveValue{ .{ .float = 8 }, .{ .float = 7 } };
-    std.log.info("Value = {d}", .{
-        (try interpreter.interpret(allocator, class_file, "add", &args)).int
+    var args = [_]primitives.PrimitiveValue{};
+    std.log.info("Value = {s}", .{
+        (try interpreter.interpret(allocator, class_file, "test", &args))
     });
 }
 

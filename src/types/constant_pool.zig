@@ -66,8 +66,9 @@ pub const ConstantPoolFloatInfo = packed struct {
 };
 
 pub const ConstantPoolLongInfo = packed struct {
-    high_bytes: u32,
-    low_bytes: u32
+    // high_bytes: u32,
+    // low_bytes: u32
+    bingus: u64
 };
 
 pub const ConstantPoolDoubleInfo = packed struct {

@@ -15,6 +15,7 @@ pub const returnAddress = usize;
 
 pub const PrimitiveValue = union(enum) {
     @"null": @"null",
+    @"void": void,
     
     byte: byte,
     short: short,
