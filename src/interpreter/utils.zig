@@ -2,6 +2,7 @@ const std = @import("std");
 
 const methods = @import("../types/methods.zig");
 const ClassFile = @import("../types/ClassFile.zig");
+const descriptors = @import("../types/descriptors.zig");
 
 pub fn formatMethod(allocator: *std.mem.Allocator, class_file: ClassFile, method: *methods.MethodInfo, writer: anytype) !void {
     if (method.access_flags.public) _ = try writer.writeAll("public ");

@@ -1,8 +1,9 @@
 const std = @import("std");
 
+const utils = @import("utils.zig");
 const StackFrame = @import("StackFrame.zig");
 const primitives = @import("primitives.zig");
-const ClassResolver = @import("class_resolver.zig");
+const ClassResolver = @import("ClassResolver.zig");
 
 const opcodes = @import("../types/opcodes.zig");
 const methods = @import("../types/methods.zig");
@@ -20,34 +21,51 @@ pub fn init(allocator: *std.mem.Allocator, class_resolver: ClassResolver) Interp
     return .{ .allocator = allocator, .class_resolver = class_resolver };
 }
 
-pub const MethodType = struct { param_types = []type, return_type = type };
-pub const JavaMethod = struct {
-    // pub fn call()
-};
+pub fn call(self: *Interpreter, path: []const u8, args: anytype) !primitives.PrimitiveValue {
+    var class_file = try self.class_resolver.resolve(path[0..std.mem.lastIndexOf(u8, path, ".").?]);
+    var method_name = path[std.mem.lastIndexOf(u8, path, ".").? + 1 ..];
+    var margs: [std.meta.fields(@TypeOf(args)).len]primitives.PrimitiveValue = undefined;
 
-pub fn getMethod(self: Interpreter, path: []const u8, comptime method_type: MethodType) JavaMethod {
-    var class_file = self.class_resolver.resolve(path);
+    var method_info: ?methods.MethodInfo = null;
+    for (class_file.methods) |*m| {
+        if (!std.mem.eql(u8, m.getName(class_file), method_name)) continue;
+
+        method_info = m.*;
+    }
+
+    inline for (std.meta.fields(@TypeOf(args))) |field, i| {
+        margs[i] = primitives.PrimitiveValue.fromNative(@field(args, field.name));
+    }
+
+    return self.interpret(class_file, method_name, &margs);
 }
 
-fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_name: []const u8, args: []primitives.PrimitiveValue) anyerror!primitives.PrimitiveValue {
-    var descriptor_buf = std.ArrayList(u8).init(allocator);
+fn classToDots(allocator: *std.mem.Allocator, class: []const u8) ![]u8 {
+    var t = try allocator.alloc(u8, class.len);
+    std.mem.copy(u8, t, class);
+    for (t) |*v| v.* = if (v.* == '/') '.' else v.*;
+    return t;
+}
+
+fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8, args: []primitives.PrimitiveValue) anyerror!primitives.PrimitiveValue {
+    var descriptor_buf = std.ArrayList(u8).init(self.allocator);
     defer descriptor_buf.deinit();
 
     for (class_file.methods) |*method| {
         if (!std.mem.eql(u8, method.getName(class_file), method_name)) continue;
 
         descriptor_buf.shrinkRetainingCapacity(0);
-        try formatMethod(allocator, class_file, method, descriptor_buf.writer());
+        try utils.formatMethod(self.allocator, class_file, method, descriptor_buf.writer());
         std.log.info("method: {s}", .{descriptor_buf.items});
 
         // TODO: See descriptors.zig
         for (method.attributes) |*att| {
-            var data = try att.readData(allocator, class_file);
+            var data = try att.readData(self.allocator, class_file);
             std.log.info((" " ** 4) ++ "method attribute: '{s}'", .{att.getName(class_file)});
 
             switch (data) {
                 .code => |code_attribute| {
-                    var stack_frame = StackFrame.init(allocator, class_file);
+                    var stack_frame = StackFrame.init(self.allocator, class_file);
                     defer stack_frame.deinit();
 
                     try stack_frame.local_variables.appendSlice(args);
@@ -219,12 +237,17 @@ fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_name: 
                             .invokestatic => |index| {
                                 var methodref = stack_frame.class_file.resolveConstant(index).methodref;
                                 var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
+                                var class_info = methodref.getClassInfo(class_file.constant_pool);
 
                                 var name = nti.getName(class_file.constant_pool);
-                                var descriptor_str = nti.getDescriptor(class_file.constant_pool);
-                                var method_desc = try descriptors.parseString(allocator, descriptor_str);
+                                var class_name_slashes = class_info.getName(class_file.constant_pool);
+                                var class_name = try classToDots(self.allocator, class_name_slashes);
+                                defer self.allocator.free(class_name);
 
-                                var params = try allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len);
+                                var descriptor_str = nti.getDescriptor(class_file.constant_pool);
+                                var method_desc = try descriptors.parseString(self.allocator, descriptor_str);
+
+                                var params = try self.allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len);
                                 for (method_desc.method.parameters) |param, i| {
                                     params[i] = switch (param.*) {
                                         .byte => .{ .byte = stack_frame.operand_stack.pop().byte },
@@ -244,7 +267,7 @@ fn interpret(allocator: *std.mem.Allocator, class_file: ClassFile, method_name: 
                                 }
                                 std.mem.reverse(primitives.PrimitiveValue, params);
 
-                                try stack_frame.operand_stack.push(try interpret(allocator, class_file, name, params));
+                                try stack_frame.operand_stack.push(try self.interpret(try self.class_resolver.resolve(class_name), name, params));
 
                                 std.log.info("return to method: {s}", .{descriptor_buf.items});
                             },
