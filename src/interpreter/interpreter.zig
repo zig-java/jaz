@@ -360,6 +360,30 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 std.log.info("return to method: {s}", .{descriptor_buf.items});
                             },
 
+                            // Do the fieldzzz!!1
+                            .putfield => |index| {
+                                var fieldref = stack_frame.class_file.resolveConstant(index).fieldref;
+
+                                var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
+                                var name = nti.getName(class_file.constant_pool);
+
+                                var value = stack_frame.operand_stack.pop();
+                                var objectref = stack_frame.operand_stack.pop().reference;
+
+                                try self.heap.getObject(objectref).setField(name, value);
+                            },
+                            .getfield => |index| {
+                                var fieldref = stack_frame.class_file.resolveConstant(index).fieldref;
+
+                                var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
+                                var name = nti.getName(class_file.constant_pool);
+
+                                var objectref = stack_frame.operand_stack.pop().reference;
+
+                                // std.log.info("{s}", .{self.heap.getObject(objectref)});
+                                try stack_frame.operand_stack.push(self.heap.getObject(objectref).getField(name).?);
+                            },
+
                             // Return
                             .ireturn, .freturn, .dreturn, .areturn => return stack_frame.operand_stack.pop(),
                             .@"return" => return .@"void",

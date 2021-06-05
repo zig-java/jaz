@@ -15,3 +15,7 @@ pub fn newObject(self: *Heap) !usize {
     try self.objects.append(obj);
     return self.objects.items.len - 1;
 }
+
+pub fn getObject(self: *Heap, reference: usize) *Object {
+    return &self.objects.items[reference].?;
+}

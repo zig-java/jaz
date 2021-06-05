@@ -19,9 +19,9 @@ pub fn deinit(self: *Object) void {
 }
 
 pub fn setField(self: *Object, name: []const u8, value: primitives.PrimitiveValue) !void {
-    self.fields.put(name, value);
+    try self.fields.put(name, value);
 }
 
-pub fn getField(self: *Object, name: []const u8) primitives.PrimitiveValue {
+pub fn getField(self: *Object, name: []const u8) ?primitives.PrimitiveValue {
     return self.fields.get(name);
 }
