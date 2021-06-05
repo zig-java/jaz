@@ -15,7 +15,12 @@ allocator: *std.mem.Allocator,
 classpath_dirs: []std.fs.Dir,
 hash_map: std.StringHashMap(ClassFile),
 
-pub fn init(allocator: *std.mem.Allocator, classpath: [][]const u8) !ClassResolver {
+pub fn init(allocator: *std.mem.Allocator, classpath_dirs: []std.fs.Dir) !ClassResolver {
+    return ClassResolver{ .allocator = allocator, .classpath_dirs = classpath_dirs, .hash_map = std.StringHashMap(ClassFile).init(allocator) };
+}
+
+/// Not recommended!
+pub fn initWithPaths(allocator: *std.mem.Allocator, classpath: [][]const u8) !ClassResolver {
     var classpath_dirs = try allocator.alloc(std.fs.Dir, classpath.len);
     for (classpath) |cp, i| {
         classpath_dirs[i] = try std.fs.openDirAbsolute(cp, .{ .access_sub_paths = true, .iterate = true });
