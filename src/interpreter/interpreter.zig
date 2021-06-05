@@ -51,8 +51,20 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
     var descriptor_buf = std.ArrayList(u8).init(self.allocator);
     defer descriptor_buf.deinit();
 
-    for (class_file.methods) |*method| {
+    method_search: for (class_file.methods) |*method| {
         if (!std.mem.eql(u8, method.getName(class_file), method_name)) continue;
+        var method_descriptor_str = method.getDescriptor(class_file);
+        var method_descriptor = try descriptors.parseString(self.allocator, method_descriptor_str);
+
+        if (method_descriptor.method.parameters.len != args.len) continue;
+
+        for (method_descriptor.method.parameters) |param, i| {
+            switch (param.*) {
+                .int => if (args[i] != .int) continue :method_search,
+                .object => continue :method_search,
+                else => unreachable,
+            }
+        }
 
         descriptor_buf.shrinkRetainingCapacity(0);
         try utils.formatMethod(self.allocator, class_file, method, descriptor_buf.writer());
@@ -96,7 +108,22 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             .bipush => |value| try stack_frame.operand_stack.push(.{ .int = value }),
                             .ldc => |index| {
                                 switch (stack_frame.class_file.resolveConstant(index)) {
-                                    .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(f32, f) }),
+                                    .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f) }),
+                                    .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f) }),
+                                    else => unreachable,
+                                }
+                            },
+                            .ldc_w => |index| {
+                                switch (stack_frame.class_file.resolveConstant(index)) {
+                                    .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f) }),
+                                    .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f) }),
+                                    else => unreachable,
+                                }
+                            },
+                            .ldc2_w => |index| {
+                                switch (stack_frame.class_file.resolveConstant(index)) {
+                                    .double => |d| try stack_frame.operand_stack.push(.{ .double = @bitCast(primitives.double, d) }),
+                                    .long => |l| try stack_frame.operand_stack.push(.{ .long = @bitCast(primitives.long, l) }),
                                     else => unreachable,
                                 }
                             },
@@ -119,6 +146,12 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             .dload_1 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[1].double }),
                             .dload_2 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[2].double }),
                             .dload_3 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[3].double }),
+
+                            .dstore => |i| try stack_frame.setLocalVariable(i, .{ .double = stack_frame.operand_stack.pop().double }),
+                            .dstore_0 => try stack_frame.setLocalVariable(0, .{ .double = stack_frame.operand_stack.pop().double }),
+                            .dstore_1 => try stack_frame.setLocalVariable(1, .{ .double = stack_frame.operand_stack.pop().double }),
+                            .dstore_2 => try stack_frame.setLocalVariable(2, .{ .double = stack_frame.operand_stack.pop().double }),
+                            .dstore_3 => try stack_frame.setLocalVariable(3, .{ .double = stack_frame.operand_stack.pop().double }),
 
                             .iconst_m1 => try stack_frame.operand_stack.push(.{ .int = -1 }),
                             .iconst_0 => try stack_frame.operand_stack.push(.{ .int = 0 }),
@@ -144,6 +177,23 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             .idiv => {
                                 var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
                                 try stack_frame.operand_stack.push(.{ .int = @divTrunc(stackvals.numerator, stackvals.denominator) });
+                            },
+                            // bitwise ops
+                            .iand => {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
+                                try stack_frame.operand_stack.push(.{ .int = stackvals.numerator & stackvals.denominator });
+                            },
+                            .ior => {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
+                                try stack_frame.operand_stack.push(.{ .int = stackvals.numerator | stackvals.denominator });
+                            },
+                            .ixor => {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
+                                try stack_frame.operand_stack.push(.{ .int = stackvals.numerator ^ stackvals.denominator });
+                            },
+                            .iushr => {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
+                                try stack_frame.operand_stack.push(.{ .int = stackvals.numerator >> @intCast(std.math.Log2Int(primitives.int), stackvals.denominator) });
                             },
 
                             .fadd => try stack_frame.operand_stack.push(.{ .float = stack_frame.operand_stack.pop().float + stack_frame.operand_stack.pop().float }),
@@ -233,6 +283,8 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
                             .f2i => try stack_frame.operand_stack.push(.{ .int = @floatToInt(primitives.int, stack_frame.operand_stack.pop().float) }),
 
+                            .d2i => try stack_frame.operand_stack.push(.{ .int = @floatToInt(primitives.int, stack_frame.operand_stack.pop().double) }),
+
                             // Invoke thangs
                             .invokestatic => |index| {
                                 var methodref = stack_frame.class_file.resolveConstant(index).methodref;
@@ -260,7 +312,11 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                         .float => .{ .float = stack_frame.operand_stack.pop().float },
                                         .double => .{ .double = stack_frame.operand_stack.pop().double },
 
-                                        .object, .array, .method => unreachable,
+                                        .object => |o| {
+                                            std.log.info("{s}", .{o});
+                                            unreachable;
+                                        },
+                                        .array, .method => unreachable,
 
                                         else => unreachable,
                                     };

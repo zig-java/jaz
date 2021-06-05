@@ -57,14 +57,11 @@ pub const ConstantPoolStringInfo = packed struct { string_index: u16 };
 pub const ConstantPoolIntegerInfo = packed struct { bytes: u32 };
 
 /// Represents 4-byte (32 bit) float
-pub const ConstantPoolFloatInfo = packed struct { bytes: u32 };
+pub const ConstantPoolFloatInfo = packed struct { value: u32 };
 
-pub const ConstantPoolLongInfo = packed struct {
-// high_bytes: u32,
-// low_bytes: u32
-bingus: u64 };
+pub const ConstantPoolLongInfo = packed struct { value: u64 };
 
-pub const ConstantPoolDoubleInfo = packed struct { high_bytes: u32, low_bytes: u32 };
+pub const ConstantPoolDoubleInfo = packed struct { value: u64 };
 
 pub const ConstantPoolNameAndTypeInfo = packed struct {
     const Self = @This();
@@ -220,6 +217,7 @@ pub const ConstantPoolInfo = union(ConstantPoolTag) {
                 return @unionInit(Self, f.name, k);
             }
         }
+
         unreachable;
     }
 };

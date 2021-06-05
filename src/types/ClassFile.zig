@@ -52,7 +52,15 @@ pub fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {
     var major_version = try reader.readIntBig(u16);
     var constant_pool_count = try reader.readIntBig(u16);
     var constant_pool = try allocator.alloc(constant_pool_.ConstantPoolInfo, constant_pool_count - 1);
-    for (constant_pool) |*cp| cp.* = try constant_pool_.ConstantPoolInfo.readFrom(allocator, reader);
+
+    var cpi: usize = 0;
+    while (cpi < constant_pool.len) : (cpi += 1) {
+        var cp = try constant_pool_.ConstantPoolInfo.readFrom(allocator, reader);
+        constant_pool[cpi] = cp;
+        if (cp == .double or cp == .long) {
+            cpi += 1;
+        }
+    }
 
     var access_flags_u = try reader.readIntBig(u16);
     var access_flags = AccessFlags{

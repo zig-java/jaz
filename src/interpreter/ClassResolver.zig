@@ -47,12 +47,10 @@ pub fn resolve(self: *ClassResolver, path: []const u8) !ClassFile {
         break;
     }
 
-    while (parts.next()) |part| {
+    while (parts.next()) |part| : (i += 1) {
         for (sub.items) |*d, j| {
             if (i + 1 == m) {
                 // Indicates that this is the last part of the Java path thang; openFile, not dir
-
-                // std.log.info("{s}", .{d});
 
                 var full_name = try std.mem.concat(self.allocator, u8, &.{ part, ".class" });
                 defer self.allocator.free(full_name);
@@ -66,15 +64,17 @@ pub fn resolve(self: *ClassResolver, path: []const u8) !ClassFile {
 
                 return class_file;
             } else {
+                // std.log.info("{s}", .{part});
                 var subdir = d.openDir(part, .{ .access_sub_paths = true, .iterate = true }) catch {
                     d.close();
                     _ = sub.orderedRemove(j);
                     continue;
                 };
+
+                _ = sub.orderedRemove(j);
+                try sub.append(subdir);
             }
         }
-
-        break;
     }
 
     for (sub.items) |*d| d.close();
