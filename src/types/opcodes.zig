@@ -234,6 +234,17 @@ placeholder: u128 };
 
 pub const multianewarray_params = packed struct { index: ConstantPoolRefOperation, dimensions: u8 };
 
+pub const newarray_params = packed enum(u8) {
+    boolean = 4,
+    char = 5,
+    float = 6,
+    double = 7,
+    byte = 8,
+    short = 9,
+    int = 10,
+    long = 11,
+};
+
 pub const Operation = union(Opcode) {
     const Self = @This();
 
@@ -291,6 +302,7 @@ pub const Operation = union(Opcode) {
     sipush: sipush_params,
     putstatic: ConstantPoolRefOperation,
     putfield: ConstantPoolRefOperation,
+    newarray: newarray_params,
 
     nop,
     aconst_null,
@@ -437,7 +449,6 @@ pub const Operation = union(Opcode) {
     dreturn,
     areturn,
     @"return",
-    newarray,
     arraylength,
     athrow,
     monitorenter,
@@ -462,7 +473,7 @@ pub const Operation = union(Opcode) {
 
         inline for (std.meta.fields(Self)) |op| {
             if (@enumToInt(std.meta.stringToEnum(Opcode, op.name).?) == opcode) {
-                return @unionInit(Self, op.name, if (op.field_type == void) {} else if (@typeInfo(op.field_type) == .Struct) try reader.readStruct(op.field_type) else if (@typeInfo(op.field_type) == .Int) try reader.readIntBig(op.field_type) else unreachable);
+                return @unionInit(Self, op.name, if (op.field_type == void) {} else if (@typeInfo(op.field_type) == .Struct) try reader.readStruct(op.field_type) else if (@typeInfo(op.field_type) == .Enum) try reader.readEnum(op.field_type, .Big) else if (@typeInfo(op.field_type) == .Int) try reader.readIntBig(op.field_type) else unreachable);
             }
         }
 

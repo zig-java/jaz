@@ -5,12 +5,6 @@ const ClassFile = @import("../types/ClassFile.zig");
 
 const ClassResolver = @This();
 
-// var testClass = try std.fs.cwd().openFile("sample/Test.class", .{});
-// defer testClass.close();
-
-// var testReader = testClass.reader();
-// var class_file = try ClassFile.readFrom(allocator, testReader);
-
 allocator: *std.mem.Allocator,
 classpath_dirs: []std.fs.Dir,
 hash_map: std.StringHashMap(ClassFile),

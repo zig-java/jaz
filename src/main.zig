@@ -19,7 +19,7 @@ pub fn main() anyerror!void {
 
     var interpreter = Interpreter.init(allocator, class_resolver);
     std.log.info("{d}", .{
-        (try interpreter.call("jaztest.Test.funky", .{})).int,
+        (try interpreter.call("jaztest.Test.funky", .{})).reference,
     });
 }
 

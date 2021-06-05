@@ -1,6 +1,8 @@
 const std = @import("std");
 
+const Heap = @import("heap.zig");
 const utils = @import("utils.zig");
+const Object = @import("Object.zig");
 const StackFrame = @import("StackFrame.zig");
 const primitives = @import("primitives.zig");
 const ClassResolver = @import("ClassResolver.zig");
@@ -15,10 +17,11 @@ const constant_pool = @import("../types/constant_pool.zig");
 const Interpreter = @This();
 
 allocator: *std.mem.Allocator,
+heap: Heap,
 class_resolver: ClassResolver,
 
 pub fn init(allocator: *std.mem.Allocator, class_resolver: ClassResolver) Interpreter {
-    return .{ .allocator = allocator, .class_resolver = class_resolver };
+    return .{ .allocator = allocator, .heap = Heap.init(allocator), .class_resolver = class_resolver };
 }
 
 pub fn call(self: *Interpreter, path: []const u8, args: anytype) !primitives.PrimitiveValue {
@@ -56,11 +59,13 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
         var method_descriptor_str = method.getDescriptor(class_file);
         var method_descriptor = try descriptors.parseString(self.allocator, method_descriptor_str);
 
-        if (method_descriptor.method.parameters.len != args.len) continue;
+        if (method_descriptor.method.parameters.len != args.len - if (method.access_flags.static) @as(usize, 0) else @as(usize, 1)) continue;
 
-        for (method_descriptor.method.parameters) |param, i| {
+        var parami = if (method.access_flags.static) @as(usize, 0) else @as(usize, 1);
+        while (parami < method_descriptor.method.parameters.len) : (parami += 1) {
+            var param = method_descriptor.method.parameters[parami];
             switch (param.*) {
-                .int => if (args[i] != .int) continue :method_search,
+                .int => if (args[parami] != .int) continue :method_search,
                 .object => continue :method_search,
                 else => unreachable,
             }
@@ -153,6 +158,18 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             .dstore_2 => try stack_frame.setLocalVariable(2, .{ .double = stack_frame.operand_stack.pop().double }),
                             .dstore_3 => try stack_frame.setLocalVariable(3, .{ .double = stack_frame.operand_stack.pop().double }),
 
+                            .aload => |i| try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[i].reference }),
+                            .aload_0 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[0].reference }),
+                            .aload_1 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[1].reference }),
+                            .aload_2 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[2].reference }),
+                            .aload_3 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[3].reference }),
+
+                            .astore => |i| try stack_frame.setLocalVariable(i, .{ .reference = stack_frame.operand_stack.pop().reference }),
+                            .astore_0 => try stack_frame.setLocalVariable(0, .{ .reference = stack_frame.operand_stack.pop().reference }),
+                            .astore_1 => try stack_frame.setLocalVariable(1, .{ .reference = stack_frame.operand_stack.pop().reference }),
+                            .astore_2 => try stack_frame.setLocalVariable(2, .{ .reference = stack_frame.operand_stack.pop().reference }),
+                            .astore_3 => try stack_frame.setLocalVariable(3, .{ .reference = stack_frame.operand_stack.pop().reference }),
+
                             .iconst_m1 => try stack_frame.operand_stack.push(.{ .int = -1 }),
                             .iconst_0 => try stack_frame.operand_stack.push(.{ .int = 0 }),
                             .iconst_1 => try stack_frame.operand_stack.push(.{ .int = 1 }),
@@ -160,6 +177,9 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             .iconst_3 => try stack_frame.operand_stack.push(.{ .int = 3 }),
                             .iconst_4 => try stack_frame.operand_stack.push(.{ .int = 4 }),
                             .iconst_5 => try stack_frame.operand_stack.push(.{ .int = 5 }),
+
+                            .lconst_0 => try stack_frame.operand_stack.push(.{ .long = 0 }),
+                            .lconst_1 => try stack_frame.operand_stack.push(.{ .long = 1 }),
 
                             .fconst_0 => try stack_frame.operand_stack.push(.{ .float = 0 }),
                             .fconst_1 => try stack_frame.operand_stack.push(.{ .float = 1 }),
@@ -285,8 +305,16 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
                             .d2i => try stack_frame.operand_stack.push(.{ .int = @floatToInt(primitives.int, stack_frame.operand_stack.pop().double) }),
 
+                            // Java bad
+                            .dup => try stack_frame.operand_stack.push(stack_frame.operand_stack.array_list.items[stack_frame.operand_stack.array_list.items.len - 1]),
+                            .newarray => |atype| {
+                                // NOTE: Actually implement this after working on garbage collectable heap!
+                                // std.log.info("{s}", .{atype});
+                            },
+                            .new => |index| try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject() }),
+
                             // Invoke thangs
-                            .invokestatic => |index| {
+                            .invokestatic, .invokespecial => |index| {
                                 var methodref = stack_frame.class_file.resolveConstant(index).methodref;
                                 var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
                                 var class_info = methodref.getClassInfo(class_file.constant_pool);
@@ -299,9 +327,11 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 var descriptor_str = nti.getDescriptor(class_file.constant_pool);
                                 var method_desc = try descriptors.parseString(self.allocator, descriptor_str);
 
-                                var params = try self.allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len);
+                                var params = try self.allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len + if (opcode != .invokestatic) @as(usize, 1) else @as(usize, 0));
+                                if (opcode != .invokestatic) params[0] = .{ .reference = stack_frame.operand_stack.pop().reference };
+
                                 for (method_desc.method.parameters) |param, i| {
-                                    params[i] = switch (param.*) {
+                                    params[i + if (opcode != .invokestatic) @as(usize, 1) else @as(usize, 0)] = switch (param.*) {
                                         .byte => .{ .byte = stack_frame.operand_stack.pop().byte },
                                         .char => .{ .char = stack_frame.operand_stack.pop().char },
 
@@ -323,13 +353,15 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 }
                                 std.mem.reverse(primitives.PrimitiveValue, params);
 
-                                try stack_frame.operand_stack.push(try self.interpret(try self.class_resolver.resolve(class_name), name, params));
+                                var return_val = try self.interpret(try self.class_resolver.resolve(class_name), name, params);
+                                if (return_val != .@"void")
+                                    try stack_frame.operand_stack.push(return_val);
 
                                 std.log.info("return to method: {s}", .{descriptor_buf.items});
                             },
 
                             // Return
-                            .ireturn, .freturn, .dreturn => return stack_frame.operand_stack.pop(),
+                            .ireturn, .freturn, .dreturn, .areturn => return stack_frame.operand_stack.pop(),
                             .@"return" => return .@"void",
 
                             else => {},

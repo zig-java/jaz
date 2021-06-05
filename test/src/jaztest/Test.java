@@ -4,8 +4,11 @@ package jaztest;
  * Compile me with Java 16!
  */
 public class Test {
+    public int bananas = 12;
+
     public static int funky() {
-        return Integer.bitCount(12);
+        Test t = new Test();
+        return t.bananas;
     }
 
     public static void main(String[] args) {
