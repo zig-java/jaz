@@ -115,7 +115,11 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 switch (stack_frame.class_file.resolveConstant(index)) {
                                     .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f) }),
                                     .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f) }),
-                                    else => unreachable,
+                                    // .string => |s| try stack_frame.operand_stack.push(.{ .reference })
+                                    else => {
+                                        std.log.info("{s}", .{stack_frame.class_file.resolveConstant(index)});
+                                        unreachable;
+                                    },
                                 }
                             },
                             .ldc_w => |index| {
@@ -307,11 +311,16 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
                             // Java bad
                             .dup => try stack_frame.operand_stack.push(stack_frame.operand_stack.array_list.items[stack_frame.operand_stack.array_list.items.len - 1]),
-                            .newarray => |atype| {
-                                // NOTE: Actually implement this after working on garbage collectable heap!
-                                // std.log.info("{s}", .{atype});
-                            },
+                            .newarray => |atype| try stack_frame.operand_stack.push(.{ .reference = try self.heap.newArray(stack_frame.operand_stack.pop().int) }),
                             .new => |index| try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject() }),
+
+                            .arraylength => try stack_frame.operand_stack.push(.{ .int = self.heap.getArray(stack_frame.operand_stack.pop().reference).length() }),
+
+                            .iastore, .sastore => {
+                                var value = stack_frame.operand_stack.pop();
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { arrayref: primitives.reference, index: primitives.int });
+                                try self.heap.getArray(stackvals.arrayref).set(stackvals.index, value);
+                            },
 
                             // Invoke thangs
                             .invokestatic, .invokespecial => |index| {

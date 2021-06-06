@@ -4,11 +4,11 @@ package jaztest;
  * Compile me with Java 16!
  */
 public class Test {
-    public int bananas = 12;
-
     public static int funky() {
-        Test t = new Test();
-        return t.bananas;
+        int[] myFavoriteThings = {1, 3, 5};
+        int a = 0;
+        for (int b : myFavoriteThings) a += b;
+        return a;
     }
 
     public static void main(String[] args) {

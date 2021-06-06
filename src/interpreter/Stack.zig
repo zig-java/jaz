@@ -29,6 +29,8 @@ pub fn popToStruct(self: *Self, comptime T: type) T {
             primitives.float => self.pop().float,
             primitives.double => self.pop().double,
 
+            primitives.reference => self.pop().reference,
+
             else => @compileLog("Type needs to be primitive!"),
         };
     }
