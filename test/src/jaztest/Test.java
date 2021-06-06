@@ -5,7 +5,7 @@ package jaztest;
  */
 public class Test {
     public static int funky() {
-        int[] myFavoriteThings = {1, 3, 5};
+        int[] myFavoriteThings = {420, 420, 420};
         int a = 0;
         for (int b : myFavoriteThings) a += b;
         return a;

@@ -322,6 +322,11 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 try self.heap.getArray(stackvals.arrayref).set(stackvals.index, value);
                             },
 
+                            .iaload => {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { arrayref: primitives.reference, index: primitives.int });
+                                try stack_frame.operand_stack.push(try self.heap.getArray(stackvals.arrayref).get(stackvals.index));
+                            },
+
                             // Invoke thangs
                             .invokestatic, .invokespecial => |index| {
                                 var methodref = stack_frame.class_file.resolveConstant(index).methodref;
