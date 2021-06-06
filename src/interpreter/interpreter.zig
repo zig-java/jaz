@@ -43,6 +43,19 @@ pub fn call(self: *Interpreter, path: []const u8, args: anytype) !primitives.Pri
     return self.interpret(class_file, method_name, &margs);
 }
 
+pub fn newObject(self: *Interpreter) !primitives.reference {
+    return try self.heap.newObject();
+}
+
+pub fn new(self: *Interpreter, class_name: []const u8, args: anytype) !primitives.reference {
+    var inits = try std.mem.concat(self.allocator, u8, &.{ class_name, ".<init>" });
+    defer self.allocator.free(inits);
+
+    var object = try self.newObject();
+    _ = try self.call(inits, .{object} ++ args);
+    return object;
+}
+
 fn classToDots(allocator: *std.mem.Allocator, class: []const u8) ![]u8 {
     var t = try allocator.alloc(u8, class.len);
     std.mem.copy(u8, t, class);
@@ -298,16 +311,25 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             },
 
                             // Casts
-                            .i2b => try stack_frame.operand_stack.push(.{ .byte = @intCast(primitives.byte, stack_frame.operand_stack.pop().int) }),
-                            .i2c => try stack_frame.operand_stack.push(.{ .char = @intCast(primitives.char, stack_frame.operand_stack.pop().int) }),
-                            .i2d => try stack_frame.operand_stack.push(.{ .double = @intToFloat(primitives.double, stack_frame.operand_stack.pop().int) }),
-                            .i2f => try stack_frame.operand_stack.push(.{ .float = @intToFloat(primitives.float, stack_frame.operand_stack.pop().int) }),
                             .i2l => try stack_frame.operand_stack.push(.{ .long = @intCast(primitives.long, stack_frame.operand_stack.pop().int) }),
-                            .i2s => try stack_frame.operand_stack.push(.{ .short = @intCast(primitives.short, stack_frame.operand_stack.pop().int) }),
+                            .i2f => try stack_frame.operand_stack.push(.{ .float = @intToFloat(primitives.float, stack_frame.operand_stack.pop().int) }),
+                            .i2d => try stack_frame.operand_stack.push(.{ .double = @intToFloat(primitives.double, stack_frame.operand_stack.pop().int) }),
+
+                            .l2i => try stack_frame.operand_stack.push(.{ .int = @intCast(primitives.int, stack_frame.operand_stack.pop().long) }),
+                            .l2f => try stack_frame.operand_stack.push(.{ .float = @intToFloat(primitives.float, stack_frame.operand_stack.pop().long) }),
+                            .l2d => try stack_frame.operand_stack.push(.{ .double = @intToFloat(primitives.double, stack_frame.operand_stack.pop().long) }),
 
                             .f2i => try stack_frame.operand_stack.push(.{ .int = @floatToInt(primitives.int, stack_frame.operand_stack.pop().float) }),
+                            .f2l => try stack_frame.operand_stack.push(.{ .long = @floatToInt(primitives.long, stack_frame.operand_stack.pop().float) }),
+                            .f2d => try stack_frame.operand_stack.push(.{ .double = @floatCast(primitives.double, stack_frame.operand_stack.pop().float) }),
 
                             .d2i => try stack_frame.operand_stack.push(.{ .int = @floatToInt(primitives.int, stack_frame.operand_stack.pop().double) }),
+                            .d2l => try stack_frame.operand_stack.push(.{ .long = @floatToInt(primitives.long, stack_frame.operand_stack.pop().double) }),
+                            .d2f => try stack_frame.operand_stack.push(.{ .float = @floatCast(primitives.float, stack_frame.operand_stack.pop().double) }),
+
+                            .i2b => try stack_frame.operand_stack.push(.{ .byte = @intCast(primitives.byte, stack_frame.operand_stack.pop().int) }),
+                            .i2c => try stack_frame.operand_stack.push(.{ .char = @intCast(primitives.char, stack_frame.operand_stack.pop().int) }),
+                            .i2s => try stack_frame.operand_stack.push(.{ .short = @intCast(primitives.short, stack_frame.operand_stack.pop().int) }),
 
                             // Java bad
                             .dup => try stack_frame.operand_stack.push(stack_frame.operand_stack.array_list.items[stack_frame.operand_stack.array_list.items.len - 1]),
@@ -342,10 +364,9 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 var method_desc = try descriptors.parseString(self.allocator, descriptor_str);
 
                                 var params = try self.allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len + if (opcode != .invokestatic) @as(usize, 1) else @as(usize, 0));
-                                if (opcode != .invokestatic) params[0] = .{ .reference = stack_frame.operand_stack.pop().reference };
 
                                 for (method_desc.method.parameters) |param, i| {
-                                    params[i + if (opcode != .invokestatic) @as(usize, 1) else @as(usize, 0)] = switch (param.*) {
+                                    params[i] = switch (param.*) {
                                         .byte => .{ .byte = stack_frame.operand_stack.pop().byte },
                                         .char => .{ .char = stack_frame.operand_stack.pop().char },
 
@@ -365,6 +386,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                         else => unreachable,
                                     };
                                 }
+                                if (opcode != .invokestatic) params[params.len - 1] = .{ .reference = stack_frame.operand_stack.pop().reference };
                                 std.mem.reverse(primitives.PrimitiveValue, params);
 
                                 var return_val = try self.interpret(try self.class_resolver.resolve(class_name), name, params);

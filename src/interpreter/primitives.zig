@@ -42,6 +42,8 @@ pub const PrimitiveValue = union(enum) {
             float => .{ .float = value },
             double => .{ .double = value },
 
+            reference => .{ .reference = value },
+
             else => @compileError("Invalid Java primitive type! (Is what you're inputting an int? You might want to @as or @intCast it!)"),
         };
     }

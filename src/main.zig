@@ -5,6 +5,7 @@ const ClassResolver = @import("interpreter/ClassResolver.zig");
 
 pub fn main() anyerror!void {
     const allocator = std.heap.page_allocator;
+    var stdout = std.io.getStdOut().writer();
 
     var classpath = [_]std.fs.Dir{
         try std.fs.cwd().openDir("test/src", .{ .access_sub_paths = true, .iterate = true }),
@@ -18,9 +19,16 @@ pub fn main() anyerror!void {
     var class_resolver = try ClassResolver.init(allocator, &classpath);
 
     var interpreter = Interpreter.init(allocator, class_resolver);
-    std.log.info("{d}", .{
-        (try interpreter.call("jaztest.Test.funky", .{})).int,
-    });
+
+    var ziguana = try interpreter.new("jaztest.Ziguana", .{@as(primitives.int, 69)});
+    var andrew = try interpreter.new("jaztest.Andrew", .{});
+
+    try stdout.print("\n\n\n--- OUTPUT ---\n\n\n", .{});
+
+    try stdout.print("Average Ziguanas's Susiness: {d}\n", .{interpreter.heap.getObject(ziguana).getField("susiness").?.int});
+    try stdout.print("Andrew's Susiness: {d}\n", .{interpreter.heap.getObject(andrew).getField("susiness").?.int});
+
+    try stdout.print("\n\n\n--- END OUTPUT ---\n\n\n", .{});
 }
 
 test {
