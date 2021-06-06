@@ -105,11 +105,34 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
                     var opcode = try opcodes.Operation.readFrom(fbs_reader);
 
-                    // TODO: Refactor this garbage somehow
                     while (true) {
                         std.log.info((" " ** 8) ++ "{s}", .{opcode});
-                        // std.log.info((" " ** 8) ++ "{s}", .{s.local_variables.items[0]});
+
+                        // TODO: Rearrange everything according to https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html
                         switch (opcode) {
+                            // Constants
+                            // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Constants" for order
+                            .nop => {},
+                            .aconst_null => try stack_frame.operand_stack.push(.@"null"),
+
+                            .iconst_m1 => try stack_frame.operand_stack.push(.{ .int = -1 }),
+                            .iconst_0 => try stack_frame.operand_stack.push(.{ .int = 0 }),
+                            .iconst_1 => try stack_frame.operand_stack.push(.{ .int = 1 }),
+                            .iconst_2 => try stack_frame.operand_stack.push(.{ .int = 2 }),
+                            .iconst_3 => try stack_frame.operand_stack.push(.{ .int = 3 }),
+                            .iconst_4 => try stack_frame.operand_stack.push(.{ .int = 4 }),
+                            .iconst_5 => try stack_frame.operand_stack.push(.{ .int = 5 }),
+
+                            .lconst_0 => try stack_frame.operand_stack.push(.{ .long = 0 }),
+                            .lconst_1 => try stack_frame.operand_stack.push(.{ .long = 1 }),
+
+                            .fconst_0 => try stack_frame.operand_stack.push(.{ .float = 0 }),
+                            .fconst_1 => try stack_frame.operand_stack.push(.{ .float = 1 }),
+                            .fconst_2 => try stack_frame.operand_stack.push(.{ .float = 2 }),
+
+                            .dconst_0 => try stack_frame.operand_stack.push(.{ .double = 0 }),
+                            .dconst_1 => try stack_frame.operand_stack.push(.{ .double = 1 }),
+
                             .iload => |i| try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[i].int }),
                             .iload_0 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[0].int }),
                             .iload_1 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[1].int }),
@@ -122,8 +145,9 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             .istore_2 => try stack_frame.setLocalVariable(2, .{ .int = stack_frame.operand_stack.pop().int }),
                             .istore_3 => try stack_frame.setLocalVariable(3, .{ .int = stack_frame.operand_stack.pop().int }),
 
-                            .sipush => |value| try stack_frame.operand_stack.push(.{ .int = value }),
                             .bipush => |value| try stack_frame.operand_stack.push(.{ .int = value }),
+                            .sipush => |value| try stack_frame.operand_stack.push(.{ .int = value }),
+
                             .ldc => |index| {
                                 switch (stack_frame.class_file.resolveConstant(index)) {
                                     .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f) }),
@@ -149,6 +173,10 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                     else => unreachable,
                                 }
                             },
+
+                            // Loads
+                            // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Loads" for order
+
                             .iinc => |iinc| stack_frame.local_variables.items[iinc.index].int += iinc.@"const",
 
                             .fload => |i| try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[i].float }),
@@ -186,24 +214,6 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             .astore_1 => try stack_frame.setLocalVariable(1, .{ .reference = stack_frame.operand_stack.pop().reference }),
                             .astore_2 => try stack_frame.setLocalVariable(2, .{ .reference = stack_frame.operand_stack.pop().reference }),
                             .astore_3 => try stack_frame.setLocalVariable(3, .{ .reference = stack_frame.operand_stack.pop().reference }),
-
-                            .iconst_m1 => try stack_frame.operand_stack.push(.{ .int = -1 }),
-                            .iconst_0 => try stack_frame.operand_stack.push(.{ .int = 0 }),
-                            .iconst_1 => try stack_frame.operand_stack.push(.{ .int = 1 }),
-                            .iconst_2 => try stack_frame.operand_stack.push(.{ .int = 2 }),
-                            .iconst_3 => try stack_frame.operand_stack.push(.{ .int = 3 }),
-                            .iconst_4 => try stack_frame.operand_stack.push(.{ .int = 4 }),
-                            .iconst_5 => try stack_frame.operand_stack.push(.{ .int = 5 }),
-
-                            .lconst_0 => try stack_frame.operand_stack.push(.{ .long = 0 }),
-                            .lconst_1 => try stack_frame.operand_stack.push(.{ .long = 1 }),
-
-                            .fconst_0 => try stack_frame.operand_stack.push(.{ .float = 0 }),
-                            .fconst_1 => try stack_frame.operand_stack.push(.{ .float = 1 }),
-                            .fconst_2 => try stack_frame.operand_stack.push(.{ .float = 2 }),
-
-                            .dconst_0 => try stack_frame.operand_stack.push(.{ .double = 0 }),
-                            .dconst_1 => try stack_frame.operand_stack.push(.{ .double = 1 }),
 
                             .iadd => try stack_frame.operand_stack.push(.{ .int = stack_frame.operand_stack.pop().int + stack_frame.operand_stack.pop().int }),
                             .imul => try stack_frame.operand_stack.push(.{ .int = stack_frame.operand_stack.pop().int * stack_frame.operand_stack.pop().int }),
@@ -310,7 +320,31 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 try stack_frame.operand_stack.push(.{ .int = if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else @as(primitives.int, -1) });
                             },
 
-                            // Casts
+                            // Stack
+                            // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Stack" for order
+                            .pop => _ = stack_frame.operand_stack.pop(),
+                            .pop2 => {
+                                var first = stack_frame.operand_stack.pop();
+                                if (first != .double and first != .long)
+                                    _ = stack_frame.operand_stack.pop();
+                            },
+                            .dup => try stack_frame.operand_stack.push(stack_frame.operand_stack.array_list.items[stack_frame.operand_stack.array_list.items.len - 1]),
+                            // TODO: Implement the rest of the dupe squad
+                            .swap => {
+                                var first = stack_frame.operand_stack.pop();
+                                var second = stack_frame.operand_stack.pop();
+
+                                std.debug.assert(first != .double and
+                                    first != .long and
+                                    second != .double and
+                                    second != .long);
+
+                                try stack_frame.operand_stack.push(first);
+                                try stack_frame.operand_stack.push(second);
+                            },
+
+                            // Conversions
+                            // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Conversions" for order
                             .i2l => try stack_frame.operand_stack.push(.{ .long = @intCast(primitives.long, stack_frame.operand_stack.pop().int) }),
                             .i2f => try stack_frame.operand_stack.push(.{ .float = @intToFloat(primitives.float, stack_frame.operand_stack.pop().int) }),
                             .i2d => try stack_frame.operand_stack.push(.{ .double = @intToFloat(primitives.double, stack_frame.operand_stack.pop().int) }),
@@ -332,7 +366,6 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             .i2s => try stack_frame.operand_stack.push(.{ .short = @intCast(primitives.short, stack_frame.operand_stack.pop().int) }),
 
                             // Java bad
-                            .dup => try stack_frame.operand_stack.push(stack_frame.operand_stack.array_list.items[stack_frame.operand_stack.array_list.items.len - 1]),
                             .newarray => |atype| try stack_frame.operand_stack.push(.{ .reference = try self.heap.newArray(stack_frame.operand_stack.pop().int) }),
                             .new => |index| try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject() }),
 
@@ -377,10 +410,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                         .float => .{ .float = stack_frame.operand_stack.pop().float },
                                         .double => .{ .double = stack_frame.operand_stack.pop().double },
 
-                                        .object => |o| {
-                                            std.log.info("{s}", .{o});
-                                            unreachable;
-                                        },
+                                        .object => .{ .reference = stack_frame.operand_stack.pop().reference },
                                         .array, .method => unreachable,
 
                                         else => unreachable,
@@ -424,7 +454,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             .ireturn, .freturn, .dreturn, .areturn => return stack_frame.operand_stack.pop(),
                             .@"return" => return .@"void",
 
-                            else => {},
+                            else => unreachable,
                         }
                         opcode = opcodes.Operation.readFrom(fbs_reader) catch break;
                     }
