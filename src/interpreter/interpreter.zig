@@ -1,8 +1,10 @@
 const std = @import("std");
 
 const Heap = @import("heap.zig");
+const array = @import("array.zig");
 const utils = @import("utils.zig");
 const Object = @import("Object.zig");
+const StaticPool = @import("StaticPool.zig");
 const StackFrame = @import("StackFrame.zig");
 const primitives = @import("primitives.zig");
 const ClassResolver = @import("ClassResolver.zig");
@@ -18,10 +20,11 @@ const Interpreter = @This();
 
 allocator: *std.mem.Allocator,
 heap: Heap,
+static_pool: StaticPool,
 class_resolver: ClassResolver,
 
 pub fn init(allocator: *std.mem.Allocator, class_resolver: ClassResolver) Interpreter {
-    return .{ .allocator = allocator, .heap = Heap.init(allocator), .class_resolver = class_resolver };
+    return .{ .allocator = allocator, .heap = Heap.init(allocator), .static_pool = StaticPool.init(allocator), .class_resolver = class_resolver };
 }
 
 pub fn call(self: *Interpreter, path: []const u8, args: anytype) !primitives.PrimitiveValue {
@@ -43,24 +46,30 @@ pub fn call(self: *Interpreter, path: []const u8, args: anytype) !primitives.Pri
     return self.interpret(class_file, method_name, &margs);
 }
 
-pub fn newObject(self: *Interpreter) !primitives.reference {
-    return try self.heap.newObject();
+fn useStaticClass(self: *Interpreter, class_name: []const u8) !void {
+    if (!self.static_pool.hasClass(class_name)) {
+        var clname = try std.mem.concat(self.allocator, u8, &.{ class_name, ".<clinit>" });
+        defer self.allocator.free(clname);
+
+        _ = self.call(clname, .{}) catch |err| switch (err) {
+            error.ClassNotFound => @panic("Big problem!!!"),
+            error.MethodNotFound => {},
+            else => unreachable,
+        };
+    }
+}
+
+pub fn newObject(self: *Interpreter, class_name: []const u8) !primitives.reference {
+    return try self.heap.newObject(try self.class_resolver.resolve(class_name));
 }
 
 pub fn new(self: *Interpreter, class_name: []const u8, args: anytype) !primitives.reference {
     var inits = try std.mem.concat(self.allocator, u8, &.{ class_name, ".<init>" });
     defer self.allocator.free(inits);
 
-    var object = try self.newObject();
+    var object = try self.newObject(class_name);
     _ = try self.call(inits, .{object} ++ args);
     return object;
-}
-
-fn classToDots(allocator: *std.mem.Allocator, class: []const u8) ![]u8 {
-    var t = try allocator.alloc(u8, class.len);
-    std.mem.copy(u8, t, class);
-    for (t) |*v| v.* = if (v.* == '/') '.' else v.*;
-    return t;
 }
 
 fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8, args: []primitives.PrimitiveValue) anyerror!primitives.PrimitiveValue {
@@ -79,7 +88,18 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
             var param = method_descriptor.method.parameters[parami];
             switch (param.*) {
                 .int => if (args[parami] != .int) continue :method_search,
-                .object => continue :method_search,
+                .object => |o| {
+                    switch (self.heap.get(args[parami].reference).*) {
+                        .object => |o2| {
+                            var cn = try o2.getClassName();
+                            defer self.allocator.free(cn);
+                            if (!std.mem.eql(u8, o, cn)) {
+                                continue :method_search;
+                            }
+                        },
+                        else => continue :method_search,
+                    }
+                },
                 else => unreachable,
             }
         }
@@ -152,7 +172,15 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 switch (stack_frame.class_file.resolveConstant(index)) {
                                     .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f) }),
                                     .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f) }),
-                                    // .string => |s| try stack_frame.operand_stack.push(.{ .reference })
+                                    .string => |s| {
+                                        var utf8 = class_file.resolveConstant(s.string_index).utf8;
+                                        var ref = try self.heap.newArray(.byte, @intCast(primitives.int, utf8.bytes.len));
+                                        var arr = self.heap.getArray(ref);
+
+                                        std.mem.copy(i8, arr.byte.slice, @bitCast([]i8, utf8.bytes));
+
+                                        try stack_frame.operand_stack.push(.{ .reference = try self.new("java.lang.String", .{ref}) });
+                                    },
                                     else => {
                                         std.log.info("{s}", .{stack_frame.class_file.resolveConstant(index)});
                                         unreachable;
@@ -163,7 +191,19 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 switch (stack_frame.class_file.resolveConstant(index)) {
                                     .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f) }),
                                     .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f) }),
-                                    else => unreachable,
+                                    .string => |s| {
+                                        var utf8 = class_file.resolveConstant(s.string_index).utf8;
+                                        var ref = try self.heap.newArray(.byte, @intCast(primitives.int, utf8.bytes.len));
+                                        var arr = self.heap.getArray(ref);
+
+                                        std.mem.copy(i8, arr.byte.slice, @bitCast([]i8, utf8.bytes));
+
+                                        try stack_frame.operand_stack.push(.{ .reference = try self.new("java.lang.String", .{ref}) });
+                                    },
+                                    else => {
+                                        std.log.info("{s}", .{stack_frame.class_file.resolveConstant(index)});
+                                        unreachable;
+                                    },
                                 }
                             },
                             .ldc2_w => |index| {
@@ -271,55 +311,6 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
                             },
 
-                            .if_icmple => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
-                                if (stackvals.value1 <= stackvals.value2) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .if_icmpge => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
-                                if (stackvals.value1 >= stackvals.value2) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .if_icmpne => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
-                                if (stackvals.value1 != stackvals.value2) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-
-                            .ifeq => |offset| {
-                                var value = stack_frame.operand_stack.pop().int;
-                                if (value == 0) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .ifne => |offset| {
-                                var value = stack_frame.operand_stack.pop().int;
-                                if (value != 0) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .iflt => |offset| {
-                                var value = stack_frame.operand_stack.pop().int;
-                                if (value < 0) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .ifle => |offset| {
-                                var value = stack_frame.operand_stack.pop().int;
-                                if (value <= 0) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-
-                            .fcmpg, .fcmpl => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.float, value2: primitives.float });
-                                try stack_frame.operand_stack.push(.{ .int = if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else @as(primitives.int, -1) });
-                            },
-
                             // Stack
                             // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Stack" for order
                             .pop => _ = stack_frame.operand_stack.pop(),
@@ -366,18 +357,29 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             .i2s => try stack_frame.operand_stack.push(.{ .short = @intCast(primitives.short, stack_frame.operand_stack.pop().int) }),
 
                             // Java bad
-                            .newarray => |atype| try stack_frame.operand_stack.push(.{ .reference = try self.heap.newArray(stack_frame.operand_stack.pop().int) }),
-                            .new => |index| try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject() }),
+                            .newarray => |atype| {
+                                inline for (std.meta.fields(@TypeOf(atype))) |field| {
+                                    if (atype == @intToEnum(@TypeOf(atype), field.value))
+                                        try stack_frame.operand_stack.push(.{ .reference = try self.heap.newArray(std.meta.stringToEnum(array.ArrayKind, field.name).?, stack_frame.operand_stack.pop().int) });
+                                }
+                            },
+                            .new => |index| {
+                                var class_name_slashes = class_file.resolveConstant(index).class.getName(class_file.constant_pool);
+                                var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                                defer self.allocator.free(class_name);
+
+                                try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name)) });
+                            },
 
                             .arraylength => try stack_frame.operand_stack.push(.{ .int = self.heap.getArray(stack_frame.operand_stack.pop().reference).length() }),
 
-                            .iastore, .sastore => {
+                            .iastore, .lastore, .fastore, .dastore, .aastore, .bastore, .castore, .sastore => {
                                 var value = stack_frame.operand_stack.pop();
                                 var stackvals = stack_frame.operand_stack.popToStruct(struct { arrayref: primitives.reference, index: primitives.int });
                                 try self.heap.getArray(stackvals.arrayref).set(stackvals.index, value);
                             },
 
-                            .iaload => {
+                            .iaload, .laload, .faload, .daload, .aaload, .baload, .caload, .saload => {
                                 var stackvals = stack_frame.operand_stack.popToStruct(struct { arrayref: primitives.reference, index: primitives.int });
                                 try stack_frame.operand_stack.push(try self.heap.getArray(stackvals.arrayref).get(stackvals.index));
                             },
@@ -390,8 +392,10 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
                                 var name = nti.getName(class_file.constant_pool);
                                 var class_name_slashes = class_info.getName(class_file.constant_pool);
-                                var class_name = try classToDots(self.allocator, class_name_slashes);
+                                var class_name = try utils.classToDots(self.allocator, class_name_slashes);
                                 defer self.allocator.free(class_name);
+
+                                try self.useStaticClass(class_name);
 
                                 var descriptor_str = nti.getDescriptor(class_file.constant_pool);
                                 var method_desc = try descriptors.parseString(self.allocator, descriptor_str);
@@ -426,7 +430,154 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 std.log.info("return to method: {s}", .{descriptor_buf.items});
                             },
 
-                            // Do the fieldzzz!!1
+                            // Return
+                            .ireturn, .freturn, .dreturn, .areturn => return stack_frame.operand_stack.pop(),
+                            .@"return" => return .@"void",
+
+                            // Comparisons
+                            // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Comparisons" for order
+                            .lcmp => {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.long, value2: primitives.long });
+                                try stack_frame.operand_stack.push(.{ .int = if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else @as(primitives.int, -1) });
+                            },
+                            .fcmpl, .fcmpg => {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.float, value2: primitives.float });
+                                try stack_frame.operand_stack.push(.{ .int = if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else @as(primitives.int, -1) });
+                            },
+                            .dcmpl, .dcmpg => {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.double, value2: primitives.double });
+                                try stack_frame.operand_stack.push(.{ .int = if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else @as(primitives.int, -1) });
+                            },
+
+                            .ifeq => |offset| {
+                                var value = stack_frame.operand_stack.pop().int;
+                                if (value == 0) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+                            .ifne => |offset| {
+                                var value = stack_frame.operand_stack.pop().int;
+                                if (value != 0) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+
+                            .iflt => |offset| {
+                                var value = stack_frame.operand_stack.pop().int;
+                                if (value < 0) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+                            .ifge => |offset| {
+                                var value = stack_frame.operand_stack.pop().int;
+                                if (value >= 0) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+                            .ifgt => |offset| {
+                                var value = stack_frame.operand_stack.pop().int;
+                                if (value > 0) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+                            .ifle => |offset| {
+                                var value = stack_frame.operand_stack.pop().int;
+                                if (value <= 0) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+
+                            .if_icmpeq => |offset| {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
+                                if (stackvals.value1 == stackvals.value2) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+                            .if_icmpne => |offset| {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
+                                if (stackvals.value1 != stackvals.value2) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+                            .if_icmplt => |offset| {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
+                                if (stackvals.value1 < stackvals.value2) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+                            .if_icmpge => |offset| {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
+                                if (stackvals.value1 >= stackvals.value2) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+                            .if_icmpgt => |offset| {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
+                                if (stackvals.value1 > stackvals.value2) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+                            .if_icmple => |offset| {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
+                                if (stackvals.value1 <= stackvals.value2) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+
+                            .if_acmpeq => |offset| {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.reference, value2: primitives.reference });
+                                if (stackvals.value1 == stackvals.value2) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+                            .if_acmpne => |offset| {
+                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.reference, value2: primitives.reference });
+                                if (stackvals.value1 != stackvals.value2) {
+                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                                }
+                            },
+
+                            // References
+                            // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "References" for order
+                            .getstatic => |index| {
+                                var fieldref = stack_frame.class_file.resolveConstant(index).fieldref;
+
+                                var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
+                                var name = nti.getName(class_file.constant_pool);
+                                var class_name_slashes = fieldref.getClassInfo(class_file.constant_pool).getName(class_file.constant_pool);
+                                var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                                defer self.allocator.free(class_name);
+
+                                try self.useStaticClass(class_name);
+
+                                var class = try self.static_pool.getClass(class_name);
+                                try stack_frame.operand_stack.push(class.getField(name).?);
+                            },
+                            .putstatic => |index| {
+                                var fieldref = stack_frame.class_file.resolveConstant(index).fieldref;
+
+                                var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
+                                var name = nti.getName(class_file.constant_pool);
+                                var class_name_slashes = fieldref.getClassInfo(class_file.constant_pool).getName(class_file.constant_pool);
+                                var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                                defer self.allocator.free(class_name);
+
+                                try self.useStaticClass(class_name);
+
+                                var value = stack_frame.operand_stack.pop();
+
+                                try (try self.static_pool.getClass(class_name)).setField(name, value);
+                            },
+                            .getfield => |index| {
+                                var fieldref = stack_frame.class_file.resolveConstant(index).fieldref;
+
+                                var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
+                                var name = nti.getName(class_file.constant_pool);
+
+                                var objectref = stack_frame.operand_stack.pop().reference;
+
+                                try stack_frame.operand_stack.push(self.heap.getObject(objectref).getField(name).?);
+                            },
                             .putfield => |index| {
                                 var fieldref = stack_frame.class_file.resolveConstant(index).fieldref;
 
@@ -438,21 +589,6 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
                                 try self.heap.getObject(objectref).setField(name, value);
                             },
-                            .getfield => |index| {
-                                var fieldref = stack_frame.class_file.resolveConstant(index).fieldref;
-
-                                var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
-                                var name = nti.getName(class_file.constant_pool);
-
-                                var objectref = stack_frame.operand_stack.pop().reference;
-
-                                // std.log.info("{s}", .{self.heap.getObject(objectref)});
-                                try stack_frame.operand_stack.push(self.heap.getObject(objectref).getField(name).?);
-                            },
-
-                            // Return
-                            .ireturn, .freturn, .dreturn, .areturn => return stack_frame.operand_stack.pop(),
-                            .@"return" => return .@"void",
 
                             else => unreachable,
                         }
@@ -464,5 +600,5 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
         }
     }
 
-    return .@"void";
+    return error.MethodNotFound;
 }

@@ -30,3 +30,10 @@ pub fn formatMethod(allocator: *std.mem.Allocator, class_file: ClassFile, method
     }
     try writer.writeByte(')');
 }
+
+pub fn classToDots(allocator: *std.mem.Allocator, class: []const u8) ![]u8 {
+    var t = try allocator.alloc(u8, class.len);
+    std.mem.copy(u8, t, class);
+    for (t) |*v| v.* = if (v.* == '/') '.' else v.*;
+    return t;
+}

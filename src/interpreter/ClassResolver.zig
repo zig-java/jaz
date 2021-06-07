@@ -23,8 +23,11 @@ pub fn initWithPaths(allocator: *std.mem.Allocator, classpath: [][]const u8) !Cl
     return ClassResolver{ .allocator = allocator, .classpath_dirs = classpath_dirs, .hash_map = std.StringHashMap(ClassFile).init(allocator) };
 }
 
-pub fn resolve(self: *ClassResolver, path: []const u8) !ClassFile {
-    if (self.hash_map.get(path)) |cf| return cf;
+pub fn resolve(self: *ClassResolver, path_: []const u8) !ClassFile {
+    if (self.hash_map.get(path_)) |cf| return cf;
+
+    var path = try self.allocator.dupe(u8, path_);
+    errdefer self.allocator.free(path);
 
     var sub = std.ArrayList(std.fs.Dir).init(self.allocator);
 
@@ -73,7 +76,7 @@ pub fn resolve(self: *ClassResolver, path: []const u8) !ClassFile {
 
     for (sub.items) |*d| d.close();
 
-    return error.NotFound;
+    return error.ClassNotFound;
 }
 
 pub fn deinit(self: ClassResolver) void {

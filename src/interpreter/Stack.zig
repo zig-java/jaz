@@ -22,6 +22,7 @@ pub fn popToStruct(self: *Self, comptime T: type) T {
             primitives.@"null" => self.pop().@"null",
 
             primitives.byte => self.pop().byte,
+            primitives.short => self.pop().short,
             primitives.int => self.pop().int,
             primitives.long => self.pop().long,
             primitives.char => self.pop().char,
