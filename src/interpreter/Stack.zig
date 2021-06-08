@@ -19,8 +19,6 @@ pub fn popToStruct(self: *Self, comptime T: type) T {
     inline while (i < std.meta.fields(T).len) : (i += 1) {
         comptime var field = std.meta.fields(T)[std.meta.fields(T).len - 1 - i];
         @field(res, field.name) = switch (field.field_type) {
-            primitives.@"null" => self.pop().@"null",
-
             primitives.byte => self.pop().byte,
             primitives.short => self.pop().short,
             primitives.int => self.pop().int,

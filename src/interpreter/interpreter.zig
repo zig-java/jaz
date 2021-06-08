@@ -51,6 +51,8 @@ fn useStaticClass(self: *Interpreter, class_name: []const u8) !void {
         var clname = try std.mem.concat(self.allocator, u8, &.{ class_name, ".<clinit>" });
         defer self.allocator.free(clname);
 
+        _ = try self.static_pool.addClass(class_name, try self.class_resolver.resolve(class_name));
+
         _ = self.call(clname, .{}) catch |err| switch (err) {
             error.ClassNotFound => @panic("Big problem!!!"),
             error.MethodNotFound => {},
@@ -60,7 +62,7 @@ fn useStaticClass(self: *Interpreter, class_name: []const u8) !void {
 }
 
 pub fn newObject(self: *Interpreter, class_name: []const u8) !primitives.reference {
-    return try self.heap.newObject(try self.class_resolver.resolve(class_name));
+    return try self.heap.newObject(try self.class_resolver.resolve(class_name), &self.class_resolver);
 }
 
 pub fn new(self: *Interpreter, class_name: []const u8, args: anytype) !primitives.reference {
@@ -81,15 +83,18 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
         var method_descriptor_str = method.getDescriptor(class_file);
         var method_descriptor = try descriptors.parseString(self.allocator, method_descriptor_str);
 
+        std.log.info("AAAAA: {s} {s} {s}", .{ method_name, method_descriptor_str, method.access_flags.static });
         if (method_descriptor.method.parameters.len != args.len - if (method.access_flags.static) @as(usize, 0) else @as(usize, 1)) continue;
 
-        var parami = if (method.access_flags.static) @as(usize, 0) else @as(usize, 1);
-        while (parami < method_descriptor.method.parameters.len) : (parami += 1) {
-            var param = method_descriptor.method.parameters[parami];
+        var tindex: usize = 0;
+        var toffset = if (method.access_flags.static) @as(usize, 0) else @as(usize, 1);
+        // std.log.info("BBBBB: {d} {d}", .{ parami, method_descriptor.method.parameters.len });
+        while (tindex < method_descriptor.method.parameters.len) : (tindex += 1) {
+            var param = method_descriptor.method.parameters[tindex];
             switch (param.*) {
-                .int => if (args[parami] != .int) continue :method_search,
+                .int => if (args[tindex + toffset] != .int) continue :method_search,
                 .object => |o| {
-                    switch (self.heap.get(args[parami].reference).*) {
+                    switch (self.heap.get(args[tindex + toffset].reference).*) {
                         .object => |o2| {
                             var cn = try o2.getClassName();
                             defer self.allocator.free(cn);
@@ -100,13 +105,19 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                         else => continue :method_search,
                     }
                 },
+                .array => |a| {
+                    switch (self.heap.get(args[tindex + toffset].reference).*) {
+                        .array => |a2| {},
+                        else => continue :method_search,
+                    }
+                },
                 else => unreachable,
             }
         }
 
         descriptor_buf.shrinkRetainingCapacity(0);
         try utils.formatMethod(self.allocator, class_file, method, descriptor_buf.writer());
-        std.log.info("method: {s}", .{descriptor_buf.items});
+        std.log.info("method: {s} {s}", .{ class_file.this_class.getName(class_file.constant_pool), descriptor_buf.items });
 
         // TODO: See descriptors.zig
         for (method.attributes) |*att| {
@@ -133,7 +144,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             // Constants
                             // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Constants" for order
                             .nop => {},
-                            .aconst_null => try stack_frame.operand_stack.push(.@"null"),
+                            .aconst_null => try stack_frame.operand_stack.push(.{ .reference = 0 }),
 
                             .iconst_m1 => try stack_frame.operand_stack.push(.{ .int = -1 }),
                             .iconst_0 => try stack_frame.operand_stack.push(.{ .int = 0 }),
@@ -368,7 +379,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 var class_name = try utils.classToDots(self.allocator, class_name_slashes);
                                 defer self.allocator.free(class_name);
 
-                                try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name)) });
+                                try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name), &self.class_resolver) });
                             },
 
                             .arraylength => try stack_frame.operand_stack.push(.{ .int = self.heap.getArray(stack_frame.operand_stack.pop().reference).length() }),
@@ -550,7 +561,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
                                 try self.useStaticClass(class_name);
 
-                                var class = try self.static_pool.getClass(class_name);
+                                var class = self.static_pool.getClass(class_name).?;
                                 try stack_frame.operand_stack.push(class.getField(name).?);
                             },
                             .putstatic => |index| {
@@ -566,7 +577,9 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
                                 var value = stack_frame.operand_stack.pop();
 
-                                try (try self.static_pool.getClass(class_name)).setField(name, value);
+                                std.log.info("{s} {s}", .{ name, value });
+
+                                try (self.static_pool.getClass(class_name).?).setField(name, value);
                             },
                             .getfield => |index| {
                                 var fieldref = stack_frame.class_file.resolveConstant(index).fieldref;

@@ -1,9 +1,12 @@
 package jaztest;
 
 public class Andrew extends Ziguana {
+    public boolean isSuperJoe;
+
     public Andrew() {
-        super(100);
-        // Integer a = Integer.valueOf(10);
-        String a = "abc";
+        super();
+
+        this.susiness = 420;
+        this.isSuperJoe = true;
     }
 }

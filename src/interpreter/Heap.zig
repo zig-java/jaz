@@ -3,6 +3,7 @@ const Object = @import("Object.zig");
 const array = @import("array.zig");
 const ClassFile = @import("../types/ClassFile.zig");
 const primitives = @import("primitives.zig");
+const ClassResolver = @import("ClassResolver.zig");
 
 const Heap = @This();
 
@@ -33,43 +34,43 @@ fn new(self: *Heap) !NewHeapValue {
 }
 
 pub fn get(self: *Heap, reference: usize) *HeapValue {
-    return &self.heap_values.items[reference];
+    return &self.heap_values.items[reference - 1];
 }
 
-pub fn newObject(self: *Heap, class_file: ClassFile) !usize {
-    var obj = Object.init(self.allocator, class_file);
+pub fn newObject(self: *Heap, class_file: ClassFile, class_resolver: *ClassResolver) !usize {
+    var obj = try Object.initNonStatic(self.allocator, class_file, class_resolver);
     var n = try self.new();
     n.value.* = .{ .object = obj };
-    return n.index;
+    return n.index + 1;
 }
 
 pub fn getObject(self: *Heap, reference: usize) *Object {
-    return &self.heap_values.items[reference].object;
+    return &self.heap_values.items[reference - 1].object;
 }
 
 pub fn newArray(self: *Heap, kind: array.ArrayKind, size: primitives.int) !usize {
     var arr = try array.Array.init(self.allocator, kind, size);
     var n = try self.new();
     n.value.* = .{ .array = arr };
-    return n.index;
+    return n.index + 1;
 }
 
 pub fn getArray(self: *Heap, reference: usize) *array.Array {
-    return &self.heap_values.items[reference].array;
+    return &self.heap_values.items[reference - 1].array;
 }
 
 pub fn free(self: *Heap, reference: usize) void {
-    switch (self.heap_values.items[reference]) {
+    switch (self.heap_values.items[reference - 1]) {
         .array => |arr| {
             arr.deinit();
         },
         .empty => unreachable,
     }
 
-    self.heap_values.items[reference] = .empty;
+    self.heap_values.items[reference - 1] = .empty;
     if (self.first_empty_index) |i| {
-        if (reference < i) self.first_empty_index = reference;
+        if (reference - 1 < i) self.first_empty_index = reference - 1;
     } else {
-        self.first_empty_index = reference;
+        self.first_empty_index = reference - 1;
     }
 }

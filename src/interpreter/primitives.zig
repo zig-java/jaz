@@ -1,4 +1,5 @@
-pub const @"null" = void;
+const std = @import("std");
+
 pub const void_value = void;
 
 pub const byte = i8;
@@ -13,8 +14,47 @@ pub const double = f64;
 pub const reference = usize;
 pub const returnAddress = usize;
 
-pub const PrimitiveValue = union(enum) {
-    @"null": @"null",
+pub const PrimitiveValueKind = enum(u4) {
+    @"void",
+
+    byte,
+    short,
+    int,
+    long,
+    char,
+
+    float,
+    double,
+
+    reference,
+    returnAddress,
+
+    pub fn sizeOf(self: PrimitiveValueKind) usize {
+        comptime var i: usize = 0;
+        inline for (std.meta.fields(PrimitiveValue)) |f| {
+            if (@enumToInt(self) == i) {
+                return @sizeOf(f.field_type);
+            }
+            i += 1;
+        }
+
+        unreachable;
+    }
+
+    pub fn getType(self: PrimitiveValueKind) type {
+        comptime var i: usize = 0;
+        inline for (std.meta.fields(PrimitiveValue)) |f| {
+            if (@enumToInt(self) == i) {
+                return f.field_type;
+            }
+            i += 1;
+        }
+
+        unreachable;
+    }
+};
+
+pub const PrimitiveValue = union(PrimitiveValueKind) {
     @"void": void_value,
 
     byte: byte,
@@ -46,5 +86,9 @@ pub const PrimitiveValue = union(enum) {
 
             else => @compileError("Invalid Java primitive type! (Is what you're inputting an int? You might want to @as or @intCast it!)"),
         };
+    }
+
+    pub fn toBool(self: *PrimitiveValue) bool {
+        return self.int == 1;
     }
 };

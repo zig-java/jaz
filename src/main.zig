@@ -20,13 +20,14 @@ pub fn main() anyerror!void {
 
     var interpreter = Interpreter.init(allocator, class_resolver);
 
-    var ziguana = try interpreter.new("jaztest.Ziguana", .{@as(primitives.int, 69)});
+    var ziguana = try interpreter.new("jaztest.Ziguana", .{});
     var andrew = try interpreter.new("jaztest.Andrew", .{});
 
     try stdout.print("\n\n\n--- OUTPUT ---\n\n\n", .{});
 
-    try stdout.print("Average Ziguanas's Susiness: {d}\n", .{interpreter.heap.getObject(ziguana).getField("susiness").?.int});
+    try stdout.print("Average Ziguana's Susiness: {d}\n", .{interpreter.heap.getObject(ziguana).getField("susiness").?.int});
     try stdout.print("Andrew's Susiness: {d}\n", .{interpreter.heap.getObject(andrew).getField("susiness").?.int});
+    try stdout.print("Is Andrew Superjoe?: {d}", .{interpreter.heap.getObject(andrew).getField("isSuperJoe").?.toBool()});
 
     try stdout.print("\n\n\n--- END OUTPUT ---\n\n\n", .{});
 }
