@@ -34,6 +34,7 @@ fn new(self: *Heap) !NewHeapValue {
 }
 
 pub fn get(self: *Heap, reference: usize) *HeapValue {
+    if (reference == 0) @panic("Attempt to use null reference!");
     return &self.heap_values.items[reference - 1];
 }
 

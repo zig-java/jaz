@@ -91,4 +91,8 @@ pub const PrimitiveValue = union(PrimitiveValueKind) {
     pub fn toBool(self: *PrimitiveValue) bool {
         return self.int == 1;
     }
+
+    pub fn isNull(self: *PrimitiveValue) bool {
+        return self.reference == 0;
+    }
 };

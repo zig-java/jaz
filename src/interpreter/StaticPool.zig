@@ -5,10 +5,10 @@ const ClassFile = @import("../types/ClassFile.zig");
 const StaticPool = @This();
 
 allocator: *std.mem.Allocator,
-pool: std.StringHashMap(Object),
+pool: std.StringHashMap(*Object),
 
 pub fn init(allocator: *std.mem.Allocator) StaticPool {
-    return .{ .allocator = allocator, .pool = std.StringHashMap(Object).init(allocator) };
+    return .{ .allocator = allocator, .pool = std.StringHashMap(*Object).init(allocator) };
 }
 
 pub fn hasClass(self: *StaticPool, name: []const u8) bool {
@@ -16,9 +16,11 @@ pub fn hasClass(self: *StaticPool, name: []const u8) bool {
 }
 
 pub fn getClass(self: *StaticPool, name: []const u8) ?*Object {
-    return if (self.pool.get(name)) |*o| o else null;
+    return if (self.pool.get(name)) |o| o else null;
 }
 
 pub fn addClass(self: *StaticPool, name: []const u8, class_file: ClassFile) !void {
-    // try self.pool.put(name, try Object.initStatic(self.allocator, class_file));
+    var o = try self.allocator.create(Object);
+    o.* = try Object.initStatic(self.allocator, class_file);
+    try self.pool.put(name, o);
 }

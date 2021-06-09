@@ -14,6 +14,8 @@ class_file: ClassFile,
 field_info: []ObjectFieldInfo,
 field_data_pool: []u8,
 
+// TODO: Store field info somewhere once generated!
+
 pub fn genNonStaticFieldInfo(allocator: *std.mem.Allocator, arr: *std.ArrayList(ObjectFieldInfo), class_file: ClassFile, class_resolver: *ClassResolver) anyerror!void {
     if (class_file.super_class) |super| {
         var class_name_slashes = super.getName(class_file.constant_pool);
@@ -24,6 +26,8 @@ pub fn genNonStaticFieldInfo(allocator: *std.mem.Allocator, arr: *std.ArrayList(
     }
 
     for (class_file.fields) |*field| {
+        if (field.access_flags.static) continue;
+
         var desc = try descriptors.parseString(allocator, field.getDescriptor(class_file));
         defer desc.deinit(allocator);
 
@@ -51,6 +55,40 @@ pub fn genNonStaticFieldInfo(allocator: *std.mem.Allocator, arr: *std.ArrayList(
 pub fn initNonStatic(allocator: *std.mem.Allocator, class_file: ClassFile, class_resolver: *ClassResolver) !Object {
     var arr = std.ArrayList(ObjectFieldInfo).init(allocator);
     try genNonStaticFieldInfo(allocator, &arr, class_file, class_resolver);
+    return init(allocator, class_file, arr.toOwnedSlice());
+}
+
+pub fn genStaticFieldInfo(allocator: *std.mem.Allocator, arr: *std.ArrayList(ObjectFieldInfo), class_file: ClassFile) anyerror!void {
+    for (class_file.fields) |*field| {
+        if (!field.access_flags.static) continue;
+
+        var desc = try descriptors.parseString(allocator, field.getDescriptor(class_file));
+        defer desc.deinit(allocator);
+
+        try arr.append(.{
+            .hash = std.hash.Wyhash.hash(arr.items.len, field.getName(class_file)),
+            .kind = switch (desc.*) {
+                .byte => .byte,
+                .char => .char,
+
+                .int, .boolean => .int,
+                .long => .long,
+                .short => .short,
+
+                .float => .float,
+                .double => .double,
+
+                .object, .array => .reference,
+
+                else => unreachable,
+            },
+        });
+    }
+}
+
+pub fn initStatic(allocator: *std.mem.Allocator, class_file: ClassFile) !Object {
+    var arr = std.ArrayList(ObjectFieldInfo).init(allocator);
+    try genStaticFieldInfo(allocator, &arr, class_file);
     return init(allocator, class_file, arr.toOwnedSlice());
 }
 
