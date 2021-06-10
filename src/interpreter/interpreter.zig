@@ -413,7 +413,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             },
 
                             // Invoke thangs
-                            .invokestatic, .invokespecial => |index| {
+                            .invokestatic, .invokespecial, .invokevirtual => |index| {
                                 var methodref = stack_frame.class_file.resolveConstant(index).methodref;
                                 var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
                                 var class_info = methodref.getClassInfo(class_file.constant_pool);
@@ -454,6 +454,52 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 std.mem.reverse(primitives.PrimitiveValue, params);
 
                                 var return_val = try self.interpret(try self.class_resolver.resolve(class_name), name, params);
+                                if (return_val != .@"void")
+                                    try stack_frame.operand_stack.push(return_val);
+
+                                std.log.info("return to method: {s}", .{descriptor_buf.items});
+                            },
+                            .invokeinterface => |iiparams| {
+                                var methodref = stack_frame.class_file.resolveConstant(opcodes.getIndex(iiparams)).interface_methodref;
+                                var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
+                                var class_info = methodref.getClassInfo(class_file.constant_pool);
+
+                                var name = nti.getName(class_file.constant_pool);
+                                var class_name_slashes = class_info.getName(class_file.constant_pool);
+                                var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                                defer self.allocator.free(class_name);
+
+                                try self.useStaticClass(class_name);
+
+                                var descriptor_str = nti.getDescriptor(class_file.constant_pool);
+                                var method_desc = try descriptors.parseString(self.allocator, descriptor_str);
+
+                                var params = try self.allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len + 1);
+
+                                // std.log.info("{s} {s} {s} {s}", .{ class_name, name, descriptor_str, stack_frame.operand_stack.array_list.items });
+                                var paramiiii: usize = method_desc.method.parameters.len;
+                                while (paramiiii > 0) : (paramiiii -= 1) {
+                                    params[method_desc.method.parameters.len - paramiiii] = switch (method_desc.method.parameters[paramiiii - 1].*) {
+                                        .byte => .{ .byte = stack_frame.operand_stack.pop().byte },
+                                        .char => .{ .char = stack_frame.operand_stack.pop().char },
+
+                                        .int, .boolean => .{ .int = stack_frame.operand_stack.pop().int },
+                                        .long => .{ .long = stack_frame.operand_stack.pop().long },
+                                        .short => .{ .short = stack_frame.operand_stack.pop().short },
+
+                                        .float => .{ .float = stack_frame.operand_stack.pop().float },
+                                        .double => .{ .double = stack_frame.operand_stack.pop().double },
+
+                                        .object, .array => .{ .reference = stack_frame.operand_stack.pop().reference },
+                                        .method => unreachable,
+
+                                        else => unreachable,
+                                    };
+                                }
+                                if (opcode != .invokestatic) params[params.len - 1] = .{ .reference = stack_frame.operand_stack.pop().reference };
+                                std.mem.reverse(primitives.PrimitiveValue, params);
+
+                                var return_val = try self.interpret(self.heap.getObject(params[0].reference).class_file, name, params);
                                 if (return_val != .@"void")
                                     try stack_frame.operand_stack.push(return_val);
 
