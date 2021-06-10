@@ -7,10 +7,10 @@ const ClassResolver = @This();
 
 allocator: *std.mem.Allocator,
 classpath_dirs: []std.fs.Dir,
-hash_map: std.StringHashMap(*ClassFile),
+hash_map: std.StringHashMap(ClassFile),
 
 pub fn init(allocator: *std.mem.Allocator, classpath_dirs: []std.fs.Dir) !ClassResolver {
-    return ClassResolver{ .allocator = allocator, .classpath_dirs = classpath_dirs, .hash_map = std.StringHashMap(*ClassFile).init(allocator) };
+    return ClassResolver{ .allocator = allocator, .classpath_dirs = classpath_dirs, .hash_map = std.StringHashMap(ClassFile).init(allocator) };
 }
 
 /// Not recommended!
@@ -20,10 +20,10 @@ pub fn initWithPaths(allocator: *std.mem.Allocator, classpath: [][]const u8) !Cl
         classpath_dirs[i] = try std.fs.openDirAbsolute(cp, .{ .access_sub_paths = true, .iterate = true });
     }
 
-    return ClassResolver{ .allocator = allocator, .classpath_dirs = classpath_dirs, .hash_map = std.StringHashMap(*ClassFile).init(allocator) };
+    return ClassResolver{ .allocator = allocator, .classpath_dirs = classpath_dirs, .hash_map = std.StringHashMap(ClassFile).init(allocator) };
 }
 
-pub fn resolve(self: *ClassResolver, path_: []const u8) !*ClassFile {
+pub fn resolve(self: *ClassResolver, path_: []const u8) !ClassFile {
     if (self.hash_map.get(path_)) |cf| return cf;
 
     var path = try self.allocator.dupe(u8, path_);
@@ -57,9 +57,9 @@ pub fn resolve(self: *ClassResolver, path_: []const u8) !*ClassFile {
 
                 var testReader = testClass.reader();
                 var class_file = try ClassFile.readFrom(self.allocator, testReader);
-                try self.hash_map.put(path, &class_file);
+                try self.hash_map.put(path, class_file);
 
-                return &class_file;
+                return class_file;
             } else {
                 // std.log.info("{s}", .{part});
                 var subdir = d.openDir(part, .{ .access_sub_paths = true, .iterate = true }) catch {

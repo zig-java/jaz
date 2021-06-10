@@ -10,13 +10,13 @@ const Object = @This();
 pub const ObjectFieldInfo = struct { hash: u64, kind: primitives.PrimitiveValueKind };
 
 allocator: *std.mem.Allocator,
-class_file: *ClassFile,
+class_file: ClassFile,
 field_info: []ObjectFieldInfo,
 field_data_pool: []u8,
 
 // TODO: Store field info somewhere once generated!
 
-pub fn genNonStaticFieldInfo(allocator: *std.mem.Allocator, arr: *std.ArrayList(ObjectFieldInfo), class_file: *ClassFile, class_resolver: *ClassResolver) anyerror!void {
+pub fn genNonStaticFieldInfo(allocator: *std.mem.Allocator, arr: *std.ArrayList(ObjectFieldInfo), class_file: ClassFile, class_resolver: *ClassResolver) anyerror!void {
     if (class_file.super_class) |super| {
         var class_name_slashes = super.getName(class_file.constant_pool);
         var class_name = try utils.classToDots(allocator, class_name_slashes);
@@ -52,7 +52,7 @@ pub fn genNonStaticFieldInfo(allocator: *std.mem.Allocator, arr: *std.ArrayList(
     }
 }
 
-pub fn initNonStatic(allocator: *std.mem.Allocator, class_file: *ClassFile, class_resolver: *ClassResolver) !Object {
+pub fn initNonStatic(allocator: *std.mem.Allocator, class_file: ClassFile, class_resolver: *ClassResolver) !Object {
     var arr = std.ArrayList(ObjectFieldInfo).init(allocator);
     try genNonStaticFieldInfo(allocator, &arr, class_file, class_resolver);
     return init(allocator, class_file, arr.toOwnedSlice());
@@ -92,7 +92,7 @@ pub fn initStatic(allocator: *std.mem.Allocator, class_file: ClassFile) !Object 
     return init(allocator, class_file, arr.toOwnedSlice());
 }
 
-pub fn init(allocator: *std.mem.Allocator, class_file: *ClassFile, field_info: []ObjectFieldInfo) !Object {
+pub fn init(allocator: *std.mem.Allocator, class_file: ClassFile, field_info: []ObjectFieldInfo) !Object {
     var fields_size: usize = 0;
 
     for (field_info) |field| {

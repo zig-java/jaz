@@ -21,9 +21,9 @@ const Interpreter = @This();
 allocator: *std.mem.Allocator,
 heap: Heap,
 static_pool: StaticPool,
-class_resolver: *ClassResolver,
+class_resolver: ClassResolver,
 
-pub fn init(allocator: *std.mem.Allocator, class_resolver: *ClassResolver) Interpreter {
+pub fn init(allocator: *std.mem.Allocator, class_resolver: ClassResolver) Interpreter {
     return .{ .allocator = allocator, .heap = Heap.init(allocator), .static_pool = StaticPool.init(allocator), .class_resolver = class_resolver };
 }
 
@@ -62,7 +62,7 @@ fn useStaticClass(self: *Interpreter, class_name: []const u8) !void {
 }
 
 pub fn newObject(self: *Interpreter, class_name: []const u8) !primitives.reference {
-    return try self.heap.newObject(try self.class_resolver.resolve(class_name), self.class_resolver);
+    return try self.heap.newObject(try self.class_resolver.resolve(class_name), &self.class_resolver);
 }
 
 pub fn new(self: *Interpreter, class_name: []const u8, args: anytype) !primitives.reference {
@@ -83,11 +83,12 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
         var method_descriptor_str = method.getDescriptor(class_file);
         var method_descriptor = try descriptors.parseString(self.allocator, method_descriptor_str);
 
+        // std.log.info("AAAAA: {s} {s} {s} {s}", .{ class_file.this_class.getName(class_file.constant_pool), method_name, method_descriptor_str, method.access_flags.static });
         if (method_descriptor.method.parameters.len != args.len - if (method.access_flags.static) @as(usize, 0) else @as(usize, 1)) continue;
 
         var tindex: usize = 0;
         var toffset = if (method.access_flags.static) @as(usize, 0) else @as(usize, 1);
-
+        // std.log.info("BBBBB: {d} {d}", .{ parami, method_descriptor.method.parameters.len });
         while (tindex < method_descriptor.method.parameters.len) : (tindex += 1) {
             var param = method_descriptor.method.parameters[tindex];
             switch (param.*) {
@@ -203,7 +204,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                         var class_name = try utils.classToDots(self.allocator, class_name_slashes);
                                         defer self.allocator.free(class_name);
 
-                                        try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name), self.class_resolver) });
+                                        try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name), &self.class_resolver) });
                                     },
                                     else => {
                                         std.log.info("{s}", .{stack_frame.class_file.resolveConstant(index)});
@@ -223,13 +224,6 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                         std.mem.copy(i8, arr.byte.slice, @bitCast([]i8, utf8.bytes));
 
                                         try stack_frame.operand_stack.push(.{ .reference = try self.new("java.lang.String", .{ref}) });
-                                    },
-                                    .class => |class| {
-                                        var class_name_slashes = class.getName(class_file.constant_pool);
-                                        var class_name = try utils.classToDots(self.allocator, class_name_slashes);
-                                        defer self.allocator.free(class_name);
-
-                                        try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name), self.class_resolver) });
                                     },
                                     else => {
                                         std.log.info("{s}", .{stack_frame.class_file.resolveConstant(index)});
@@ -402,7 +396,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 var class_name = try utils.classToDots(self.allocator, class_name_slashes);
                                 defer self.allocator.free(class_name);
 
-                                try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name), self.class_resolver) });
+                                try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name), &self.class_resolver) });
                             },
 
                             .arraylength => try stack_frame.operand_stack.push(.{ .int = self.heap.getArray(stack_frame.operand_stack.pop().reference).length() }),
@@ -419,7 +413,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             },
 
                             // Invoke thangs
-                            .invokestatic, .invokespecial, .invokevirtual => |index| {
+                            .invokestatic, .invokespecial => |index| {
                                 var methodref = stack_frame.class_file.resolveConstant(index).methodref;
                                 var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
                                 var class_info = methodref.getClassInfo(class_file.constant_pool);
@@ -460,54 +454,6 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                 std.mem.reverse(primitives.PrimitiveValue, params);
 
                                 var return_val = try self.interpret(try self.class_resolver.resolve(class_name), name, params);
-                                if (return_val != .@"void")
-                                    try stack_frame.operand_stack.push(return_val);
-
-                                std.log.info("return to method: {s}", .{descriptor_buf.items});
-                            },
-                            .invokeinterface => |iiparams| {
-                                // var index, count, pad
-                                // std.log.info("{d}", .{opcodes.getIndex(iiparams)});
-                                var methodref = stack_frame.class_file.resolveConstant(opcodes.getIndex(iiparams)).interface_methodref;
-                                var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
-                                var class_info = methodref.getClassInfo(class_file.constant_pool);
-
-                                var name = nti.getName(class_file.constant_pool);
-                                var class_name_slashes = class_info.getName(class_file.constant_pool);
-                                var class_name = try utils.classToDots(self.allocator, class_name_slashes);
-                                defer self.allocator.free(class_name);
-
-                                try self.useStaticClass(class_name);
-
-                                var descriptor_str = nti.getDescriptor(class_file.constant_pool);
-                                var method_desc = try descriptors.parseString(self.allocator, descriptor_str);
-
-                                var params = try self.allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len + 1);
-
-                                // std.log.info("{s} {s} {s} {s}", .{ class_name, name, descriptor_str, stack_frame.operand_stack.array_list.items });
-                                var paramiiii: usize = method_desc.method.parameters.len;
-                                while (paramiiii > 0) : (paramiiii -= 1) {
-                                    params[method_desc.method.parameters.len - paramiiii] = switch (method_desc.method.parameters[paramiiii - 1].*) {
-                                        .byte => .{ .byte = stack_frame.operand_stack.pop().byte },
-                                        .char => .{ .char = stack_frame.operand_stack.pop().char },
-
-                                        .int, .boolean => .{ .int = stack_frame.operand_stack.pop().int },
-                                        .long => .{ .long = stack_frame.operand_stack.pop().long },
-                                        .short => .{ .short = stack_frame.operand_stack.pop().short },
-
-                                        .float => .{ .float = stack_frame.operand_stack.pop().float },
-                                        .double => .{ .double = stack_frame.operand_stack.pop().double },
-
-                                        .object, .array => .{ .reference = stack_frame.operand_stack.pop().reference },
-                                        .method => unreachable,
-
-                                        else => unreachable,
-                                    };
-                                }
-                                if (opcode != .invokestatic) params[params.len - 1] = .{ .reference = stack_frame.operand_stack.pop().reference };
-                                std.mem.reverse(primitives.PrimitiveValue, params);
-
-                                var return_val = try self.interpret(self.heap.getObject(params[0].reference).class_file, name, params);
                                 if (return_val != .@"void")
                                     try stack_frame.operand_stack.push(return_val);
 
@@ -660,7 +606,6 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
                                 var objectref = stack_frame.operand_stack.pop().reference;
 
-                                std.log.info("{s} {s}", .{ try self.heap.getObject(objectref).getClassName(), name });
                                 try stack_frame.operand_stack.push(self.heap.getObject(objectref).getField(name).?);
                             },
                             .putfield => |index| {

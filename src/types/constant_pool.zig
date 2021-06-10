@@ -2,7 +2,7 @@ const std = @import("std");
 const ClassFile = @import("ClassFile.zig");
 const descriptors = @import("descriptors.zig");
 
-pub const Tag = enum(u8) {
+pub const ConstantPoolTag = enum(u8) {
     class = 7,
     fieldref = 9,
     methodref = 10,
@@ -22,65 +22,65 @@ pub const Tag = enum(u8) {
     package = 20,
 };
 
-pub const ClassInfo = packed struct {
+pub const ConstantPoolClassInfo = packed struct {
     const Self = @This();
 
-    /// Points to a `Utf8Info`
+    /// Points to a `ConstantPoolUtf8Info`
     name_index: u16,
 
-    pub fn getName(self: Self, constant_pool: []Entry) []const u8 {
+    pub fn getName(self: Self, constant_pool: []ConstantPoolInfo) []const u8 {
         return constant_pool[self.name_index - 1].utf8.bytes;
     }
 };
 
-pub const RefInfo = packed struct {
+pub const ConstantPoolRefInfo = packed struct {
     const Self = @This();
 
     /// Points to class or interface
     class_index: u16,
-    /// Points to a `NameAndTypeInfo`
+    /// Points to a `ConstantPoolNameAndTypeInfo`
     name_and_type_index: u16,
 
-    pub fn getClassInfo(self: Self, constant_pool: []Entry) ClassInfo {
+    pub fn getClassInfo(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolClassInfo {
         return constant_pool[self.class_index - 1].class;
     }
 
-    pub fn getNameAndTypeInfo(self: Self, constant_pool: []Entry) NameAndTypeInfo {
+    pub fn getNameAndTypeInfo(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolNameAndTypeInfo {
         return constant_pool[self.name_and_type_index - 1].name_and_type;
     }
 };
 
-/// Points to a `Utf8Info`
-pub const StringInfo = packed struct { string_index: u16 };
+/// Points to a `ConstantPoolUtf8Info`
+pub const ConstantPoolStringInfo = packed struct { string_index: u16 };
 
 /// Represents 4-byte (32 bit) integer
-pub const IntegerInfo = packed struct { bytes: u32 };
+pub const ConstantPoolIntegerInfo = packed struct { bytes: u32 };
 
 /// Represents 4-byte (32 bit) float
-pub const FloatInfo = packed struct { value: u32 };
+pub const ConstantPoolFloatInfo = packed struct { value: u32 };
 
-pub const LongInfo = packed struct { value: u64 };
+pub const ConstantPoolLongInfo = packed struct { value: u64 };
 
-pub const DoubleInfo = packed struct { value: u64 };
+pub const ConstantPoolDoubleInfo = packed struct { value: u64 };
 
-pub const NameAndTypeInfo = packed struct {
+pub const ConstantPoolNameAndTypeInfo = packed struct {
     const Self = @This();
 
-    /// Points to a `Utf8Info` describing a unique field or method name or <init>
+    /// Points to a `ConstantPoolUtf8Info` describing a unique field or method name or <init>
     name_index: u16,
-    /// Points to a `Utf8Info` representing a field or method descriptor
+    /// Points to a `ConstantPoolUtf8Info` representing a field or method descriptor
     descriptor_index: u16,
 
-    pub fn getName(self: Self, constant_pool: []Entry) []const u8 {
+    pub fn getName(self: Self, constant_pool: []ConstantPoolInfo) []const u8 {
         return constant_pool[self.name_index - 1].utf8.bytes;
     }
 
-    pub fn getDescriptor(self: Self, constant_pool: []Entry) []const u8 {
+    pub fn getDescriptor(self: Self, constant_pool: []ConstantPoolInfo) []const u8 {
         return constant_pool[self.descriptor_index - 1].utf8.bytes;
     }
 };
 
-pub const Utf8Info = struct {
+pub const ConstantPoolUtf8Info = struct {
     const Self = @This();
 
     bytes: []u8,
@@ -94,12 +94,12 @@ pub const Utf8Info = struct {
     }
 };
 
-pub const ReferenceKind = enum(u8) { get_field = 1, get_static = 2, put_field = 3, put_static = 4, invoke_virtual = 5, invoke_static = 6, invoke_special = 7, new_invoke_special = 8, invoke_interface = 9 };
+pub const ConstantPoolReferenceKind = enum(u8) { get_field = 1, get_static = 2, put_field = 3, put_static = 4, invoke_virtual = 5, invoke_static = 6, invoke_special = 7, new_invoke_special = 8, invoke_interface = 9 };
 
-pub const MethodHandleInfo = struct {
+pub const ConstantPoolMethodHandleInfo = struct {
     const Self = @This();
 
-    reference_kind: ReferenceKind,
+    reference_kind: ConstantPoolReferenceKind,
     /// Based on ref kind:
     /// 1, 2, 3, 4 - points to fieldref
     /// 5, 8 - points to methodref
@@ -109,12 +109,12 @@ pub const MethodHandleInfo = struct {
 
     fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {
         return Self{
-            .reference_kind = @intToEnum(ReferenceKind, try reader.readIntBig(u8)),
+            .reference_kind = @intToEnum(ConstantPoolReferenceKind, try reader.readIntBig(u8)),
             .reference_index = try reader.readIntBig(u16),
         };
     }
 
-    pub fn getReference(self: Self, constant_pool: []Entry) Entry {
+    pub fn getReference(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolInfo {
         var ref = constant_pool[self.reference_index - 1];
         switch (self.reference_kind) {
             .get_field, .get_static, .put_field, .put_static => std.debug.assert(std.meta.activeTag(ref) == .fieldref),
@@ -129,81 +129,81 @@ pub const MethodHandleInfo = struct {
     }
 };
 
-pub const MethodTypeInfo = packed struct {
+pub const ConstantPoolMethodTypeInfo = packed struct {
     const Self = @This();
 
     descriptor_index: u16,
 
-    pub fn getDescriptor(self: Self, constant_pool: []Entry) []const u8 {
+    pub fn getDescriptor(self: Self, constant_pool: []ConstantPoolInfo) []const u8 {
         return constant_pool[self.descriptor_index - 1].utf8.bytes;
     }
 };
 
-pub const DynamicInfo = packed struct {
+pub const ConstantPoolDynamicInfo = packed struct {
     bootstrap_method_attr_index: u16,
     name_and_type_index: u16,
 
-    pub fn getNameAndTypeInfo(self: Self, constant_pool: []Entry) NameAndTypeInfo {
+    pub fn getNameAndTypeInfo(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolNameAndTypeInfo {
         return constant_pool[self.name_and_type_index - 1].name_and_type;
     }
 };
 
-pub const InvokeDynamicInfo = packed struct {
+pub const ConstantPoolInvokeDynamicInfo = packed struct {
     bootstrap_method_attr_index: u16,
     name_and_type_index: u16,
 
-    pub fn getNameAndTypeInfo(self: Self, constant_pool: []Entry) NameAndTypeInfo {
+    pub fn getNameAndTypeInfo(self: Self, constant_pool: []ConstantPoolInfo) ConstantPoolNameAndTypeInfo {
         return constant_pool[self.name_and_type_index - 1].name_and_type;
     }
 };
 
-pub const ModuleInfo = packed struct {
+pub const ConstantPoolModuleInfo = packed struct {
     name_index: u16,
 
-    pub fn getName(self: Self, constant_pool: []Entry) []const u8 {
+    pub fn getName(self: Self, constant_pool: []ConstantPoolInfo) []const u8 {
         return constant_pool[self.name_index - 1].utf8.bytes;
     }
 };
 
-pub const PackageInfo = packed struct {
+pub const ConstantPoolPackageInfo = packed struct {
     name_index: u16,
 
-    pub fn getName(self: Self, constant_pool: []Entry) []const u8 {
+    pub fn getName(self: Self, constant_pool: []ConstantPoolInfo) []const u8 {
         return constant_pool[self.name_index - 1].utf8.bytes;
     }
 };
 
-pub const Entry = union(Tag) {
+pub const ConstantPoolInfo = union(ConstantPoolTag) {
     const Self = @This();
 
-    class: ClassInfo,
+    class: ConstantPoolClassInfo,
 
-    fieldref: RefInfo,
-    methodref: RefInfo,
-    interface_methodref: RefInfo,
+    fieldref: ConstantPoolRefInfo,
+    methodref: ConstantPoolRefInfo,
+    interface_methodref: ConstantPoolRefInfo,
 
-    string: StringInfo,
-    integer: IntegerInfo,
-    float: FloatInfo,
-    long: LongInfo,
-    double: DoubleInfo,
+    string: ConstantPoolStringInfo,
+    integer: ConstantPoolIntegerInfo,
+    float: ConstantPoolFloatInfo,
+    long: ConstantPoolLongInfo,
+    double: ConstantPoolDoubleInfo,
 
-    name_and_type: NameAndTypeInfo,
-    utf8: Utf8Info,
+    name_and_type: ConstantPoolNameAndTypeInfo,
+    utf8: ConstantPoolUtf8Info,
 
-    method_handle: MethodHandleInfo,
-    method_type: MethodTypeInfo,
+    method_handle: ConstantPoolMethodHandleInfo,
+    method_type: ConstantPoolMethodTypeInfo,
 
-    dynamic: DynamicInfo,
-    invoke_dynamic: InvokeDynamicInfo,
+    dynamic: ConstantPoolDynamicInfo,
+    invoke_dynamic: ConstantPoolInvokeDynamicInfo,
 
-    module: ModuleInfo,
-    package: PackageInfo,
+    module: ConstantPoolModuleInfo,
+    package: ConstantPoolPackageInfo,
 
-    fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {
+    pub fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {
         var tag = try reader.readIntBig(u8);
-        inline for (@typeInfo(Tag).Enum.fields) |f, i| {
-            const this_tag_value = @field(Tag, f.name);
+        inline for (@typeInfo(ConstantPoolTag).Enum.fields) |f, i| {
+            const this_tag_value = @field(ConstantPoolTag, f.name);
             if (tag == @enumToInt(this_tag_value)) {
                 const T = std.meta.fields(Self)[i].field_type;
                 var k: T = undefined;
@@ -221,28 +221,3 @@ pub const Entry = union(Tag) {
         unreachable;
     }
 };
-
-const ConstantPool = @This();
-
-entries: []Entry,
-
-pub fn init(allocator: *std.mem.Allocator, reader: anytype) !ConstantPool {
-    var constant_pool_count = try reader.readIntBig(u16);
-    var entries = try allocator.alloc(Entry, constant_pool_count - 1);
-
-    var cpi: usize = 0;
-    while (cpi < entries.len) : (cpi += 1) {
-        var cp = try Entry.readFrom(allocator, reader);
-        entries[cpi] = cp;
-        if (cp == .double or cp == .long) {
-            cpi += 1;
-        }
-    }
-
-    return ConstantPool{ .entries = entries };
-}
-
-/// Get entry at `index`.
-pub fn getEntry(self: ConstantPool, index: u16) Entry {
-    return self.entries[index - 1];
-}
