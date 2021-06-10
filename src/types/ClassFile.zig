@@ -5,7 +5,7 @@ const utils = @import("utils.zig");
 const fields = @import("fields.zig");
 const methods = @import("methods.zig");
 const attributes = @import("attributes.zig");
-const constant_pool_ = @import("constant_pool.zig");
+const ConstantPool = @import("ConstantPool.zig");
 
 const Self = @This();
 
@@ -24,15 +24,15 @@ pub const AccessFlags = struct {
 minor_version: u16,
 major_version: u16,
 /// Constants (referenced classes, etc.)
-constant_pool: []constant_pool_.ConstantPoolInfo,
+constant_pool: ConstantPool,
 /// Is this class public, private, etc.
 access_flags: AccessFlags,
 /// Actual class in the ConstantPool
-this_class: constant_pool_.ConstantPoolClassInfo,
+this_class: *ConstantPool.ClassInfo,
 /// Super class in the ConstantPool
-super_class: ?constant_pool_.ConstantPoolClassInfo,
+super_class: ?*ConstantPool.ClassInfo,
 /// Interfaces this class inherits
-interfaces: []constant_pool_.ConstantPoolClassInfo,
+interfaces: []ConstantPool.ClassInfo,
 /// Fields this class has
 fields: []fields.FieldInfo,
 /// Methods the class has
@@ -40,27 +40,14 @@ methods: []methods.MethodInfo,
 /// Attributes the class has
 attributes: []attributes.AttributeInfo,
 
-pub fn resolveConstant(self: Self, index: u16) constant_pool_.ConstantPoolInfo {
-    return self.constant_pool[index - 1];
-}
-
 pub fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {
     var magic = try reader.readIntBig(u32);
     if (magic != 0xCAFEBABE) return error.BadMagicValue;
 
     var minor_version = try reader.readIntBig(u16);
     var major_version = try reader.readIntBig(u16);
-    var constant_pool_count = try reader.readIntBig(u16);
-    var constant_pool = try allocator.alloc(constant_pool_.ConstantPoolInfo, constant_pool_count - 1);
 
-    var cpi: usize = 0;
-    while (cpi < constant_pool.len) : (cpi += 1) {
-        var cp = try constant_pool_.ConstantPoolInfo.readFrom(allocator, reader);
-        constant_pool[cpi] = cp;
-        if (cp == .double or cp == .long) {
-            cpi += 1;
-        }
-    }
+    var constant_pool = try ConstantPool.init(allocator, reader);
 
     var access_flags_u = try reader.readIntBig(u16);
     var access_flags = AccessFlags{
@@ -76,17 +63,17 @@ pub fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {
     };
 
     var this_class_u = try reader.readIntBig(u16);
-    var this_class = constant_pool[this_class_u - 1].class;
+    var this_class = &constant_pool.getEntry(this_class_u).class;
 
     var super_class_u = try reader.readIntBig(u16);
-    var super_class = if (super_class_u == 0) null else constant_pool[super_class_u - 1].class;
+    var super_class = if (super_class_u == 0) null else &constant_pool.getEntry(super_class_u).class;
 
     var interfaces_count = try reader.readIntBig(u16);
-    var interfaces = try allocator.alloc(constant_pool_.ConstantPoolClassInfo, interfaces_count);
+    var interfaces = try allocator.alloc(ConstantPool.ClassInfo, interfaces_count);
     for (interfaces) |*i| {
-        var k = try reader.readStruct(constant_pool_.ConstantPoolClassInfo);
+        var k = try reader.readStruct(ConstantPool.ClassInfo);
         if (std.Target.current.cpu.arch.endian() == .Little) {
-            inline for (std.meta.fields(constant_pool_.ConstantPoolClassInfo)) |f2| @field(k, f2.name) = @byteSwap(f2.field_type, @field(k, f2.name));
+            inline for (std.meta.fields(ConstantPool.ClassInfo)) |f2| @field(k, f2.name) = @byteSwap(f2.field_type, @field(k, f2.name));
         }
         i.* = k;
     }

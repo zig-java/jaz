@@ -23,14 +23,6 @@ pub const FieldInfo = struct {
     descriptor_index: u16,
     attributes: []attributes.AttributeInfo,
 
-    pub fn getName(self: *Self, class_file: ClassFile) []const u8 {
-        return class_file.resolveConstant(self.name_index).utf8.bytes;
-    }
-
-    pub fn getDescriptor(self: *Self, class_file: ClassFile) []const u8 {
-        return class_file.resolveConstant(self.descriptor_index).utf8.bytes;
-    }
-
     pub fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {
         var access_flags_u = try reader.readIntBig(u16);
         var name_index = try reader.readIntBig(u16);

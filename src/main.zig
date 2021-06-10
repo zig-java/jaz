@@ -18,17 +18,13 @@ pub fn main() anyerror!void {
     };
     var class_resolver = try ClassResolver.init(allocator, &classpath);
 
-    var interpreter = Interpreter.init(allocator, class_resolver);
+    var interpreter = Interpreter.init(allocator, &class_resolver);
 
-    var ziguana = try interpreter.new("jaztest.Ziguana", .{});
-    var andrew = try interpreter.new("jaztest.Andrew", .{});
+    var ben = try interpreter.new("jaztest.Benjamin", .{});
 
     try stdout.print("\n\n\n--- OUTPUT ---\n\n\n", .{});
 
-    try stdout.print("Average Ziguana's Susiness: {d}\n", .{interpreter.heap.getObject(ziguana).getField("susiness").?.int});
-    try stdout.print("Andrew's Susiness: {d}\n", .{interpreter.heap.getObject(andrew).getField("susiness").?.int});
-    try stdout.print("Is Andrew Superjoe?: {d}", .{interpreter.heap.getObject(andrew).getField("isSuperJoe").?.toBool()});
-
+    try stdout.print("Ben's Awesomeness: {d}\n", .{interpreter.call("jaztest.Benjamin.main", .{})});
     try stdout.print("\n\n\n--- END OUTPUT ---\n\n\n", .{});
 }
 

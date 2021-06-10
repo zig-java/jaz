@@ -225,7 +225,8 @@ pub const iinc_params = packed struct { index: LocalIndexOperation, @"const": i8
 
 pub const invokedynamic_params = packed struct { index: ConstantPoolRefOperation, pad: u16 };
 
-pub const invokeinterface_params = packed struct { index: ConstantPoolRefOperation, count: u8, pad: u8 };
+// pub const invokeinterface_params = packed struct { index: ConstantPoolRefOperation, count: u8, pad: u8 };
+pub const invokeinterface_params = packed struct { indexbyte1: u8, indexbyte2: u8, count: u8, pad: u8 };
 
 /// TODO
 pub const lookupswitch_params = packed struct {

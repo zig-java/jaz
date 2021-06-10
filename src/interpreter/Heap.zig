@@ -38,7 +38,7 @@ pub fn get(self: *Heap, reference: usize) *HeapValue {
     return &self.heap_values.items[reference - 1];
 }
 
-pub fn newObject(self: *Heap, class_file: ClassFile, class_resolver: *ClassResolver) !usize {
+pub fn newObject(self: *Heap, class_file: *ClassFile, class_resolver: *ClassResolver) !usize {
     var obj = try Object.initNonStatic(self.allocator, class_file, class_resolver);
     var n = try self.new();
     n.value.* = .{ .object = obj };
