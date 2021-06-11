@@ -21,9 +21,9 @@ const Interpreter = @This();
 allocator: *std.mem.Allocator,
 heap: Heap,
 static_pool: StaticPool,
-class_resolver: ClassResolver,
+class_resolver: *ClassResolver,
 
-pub fn init(allocator: *std.mem.Allocator, class_resolver: ClassResolver) Interpreter {
+pub fn init(allocator: *std.mem.Allocator, class_resolver: *ClassResolver) Interpreter {
     return .{ .allocator = allocator, .heap = Heap.init(allocator), .static_pool = StaticPool.init(allocator), .class_resolver = class_resolver };
 }
 
@@ -62,7 +62,7 @@ fn useStaticClass(self: *Interpreter, class_name: []const u8) !void {
 }
 
 pub fn newObject(self: *Interpreter, class_name: []const u8) !primitives.reference {
-    return try self.heap.newObject(try self.class_resolver.resolve(class_name), &self.class_resolver);
+    return try self.heap.newObject(try self.class_resolver.resolve(class_name), self.class_resolver);
 }
 
 pub fn new(self: *Interpreter, class_name: []const u8, args: anytype) !primitives.reference {
@@ -74,21 +74,17 @@ pub fn new(self: *Interpreter, class_name: []const u8, args: anytype) !primitive
     return object;
 }
 
-fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8, args: []primitives.PrimitiveValue) anyerror!primitives.PrimitiveValue {
-    var descriptor_buf = std.ArrayList(u8).init(self.allocator);
-    defer descriptor_buf.deinit();
-
+pub fn findMethod(self: *Interpreter, class_file: ClassFile, method_name: []const u8, args: []primitives.PrimitiveValue) !?*const methods.MethodInfo {
     method_search: for (class_file.methods) |*method| {
         if (!std.mem.eql(u8, method.getName(class_file), method_name)) continue;
         var method_descriptor_str = method.getDescriptor(class_file);
         var method_descriptor = try descriptors.parseString(self.allocator, method_descriptor_str);
 
-        // std.log.info("AAAAA: {s} {s} {s} {s}", .{ class_file.this_class.getName(class_file.constant_pool), method_name, method_descriptor_str, method.access_flags.static });
         if (method_descriptor.method.parameters.len != args.len - if (method.access_flags.static) @as(usize, 0) else @as(usize, 1)) continue;
 
         var tindex: usize = 0;
         var toffset = if (method.access_flags.static) @as(usize, 0) else @as(usize, 1);
-        // std.log.info("BBBBB: {d} {d}", .{ parami, method_descriptor.method.parameters.len });
+
         while (tindex < method_descriptor.method.parameters.len) : (tindex += 1) {
             var param = method_descriptor.method.parameters[tindex];
             switch (param.*) {
@@ -122,559 +118,570 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
             }
         }
 
-        descriptor_buf.shrinkRetainingCapacity(0);
-        try utils.formatMethod(self.allocator, class_file, method, descriptor_buf.writer());
-        std.log.info("method: {s} {s}", .{ class_file.this_class.getName(class_file.constant_pool), descriptor_buf.items });
+        return method;
+    }
 
-        // TODO: See descriptors.zig
-        for (method.attributes) |*att| {
-            var data = try att.readData(self.allocator, class_file);
-            std.log.info((" " ** 4) ++ "method attribute: '{s}'", .{att.getName(class_file)});
+    return null;
+}
 
-            switch (data) {
-                .code => |code_attribute| {
-                    var stack_frame = StackFrame.init(self.allocator, class_file);
-                    defer stack_frame.deinit();
+fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8, args: []primitives.PrimitiveValue) anyerror!primitives.PrimitiveValue {
+    var descriptor_buf = std.ArrayList(u8).init(self.allocator);
+    defer descriptor_buf.deinit();
 
-                    try stack_frame.local_variables.appendSlice(args);
+    var method = (try self.findMethod(class_file, method_name, args)) orelse return error.MethodNotFound;
 
-                    var fbs = std.io.fixedBufferStream(code_attribute.code);
-                    var fbs_reader = fbs.reader();
+    descriptor_buf.shrinkRetainingCapacity(0);
+    try utils.formatMethod(self.allocator, class_file, method, descriptor_buf.writer());
+    std.log.info("method: {s} {s}", .{ class_file.this_class.getName(class_file.constant_pool), descriptor_buf.items });
 
-                    var opcode = try opcodes.Operation.readFrom(fbs_reader);
+    // TODO: See descriptors.zig
+    for (method.attributes) |*att| {
+        var data = try att.readData(self.allocator, class_file);
+        std.log.info((" " ** 4) ++ "method attribute: '{s}'", .{att.getName(class_file)});
 
-                    while (true) {
-                        std.log.info((" " ** 8) ++ "{s}", .{opcode});
+        switch (data) {
+            .code => |code_attribute| {
+                var stack_frame = StackFrame.init(self.allocator, class_file);
+                defer stack_frame.deinit();
 
-                        // TODO: Rearrange everything according to https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html
-                        switch (opcode) {
-                            // Constants
-                            // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Constants" for order
-                            .nop => {},
-                            .aconst_null => try stack_frame.operand_stack.push(.{ .reference = 0 }),
+                try stack_frame.local_variables.appendSlice(args);
 
-                            .iconst_m1 => try stack_frame.operand_stack.push(.{ .int = -1 }),
-                            .iconst_0 => try stack_frame.operand_stack.push(.{ .int = 0 }),
-                            .iconst_1 => try stack_frame.operand_stack.push(.{ .int = 1 }),
-                            .iconst_2 => try stack_frame.operand_stack.push(.{ .int = 2 }),
-                            .iconst_3 => try stack_frame.operand_stack.push(.{ .int = 3 }),
-                            .iconst_4 => try stack_frame.operand_stack.push(.{ .int = 4 }),
-                            .iconst_5 => try stack_frame.operand_stack.push(.{ .int = 5 }),
+                var fbs = std.io.fixedBufferStream(code_attribute.code);
+                var fbs_reader = fbs.reader();
 
-                            .lconst_0 => try stack_frame.operand_stack.push(.{ .long = 0 }),
-                            .lconst_1 => try stack_frame.operand_stack.push(.{ .long = 1 }),
+                var opcode = try opcodes.Operation.readFrom(fbs_reader);
 
-                            .fconst_0 => try stack_frame.operand_stack.push(.{ .float = 0 }),
-                            .fconst_1 => try stack_frame.operand_stack.push(.{ .float = 1 }),
-                            .fconst_2 => try stack_frame.operand_stack.push(.{ .float = 2 }),
+                while (true) {
+                    std.log.info((" " ** 8) ++ "{s}", .{opcode});
 
-                            .dconst_0 => try stack_frame.operand_stack.push(.{ .double = 0 }),
-                            .dconst_1 => try stack_frame.operand_stack.push(.{ .double = 1 }),
+                    // TODO: Rearrange everything according to https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html
+                    switch (opcode) {
+                        // Constants
+                        // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Constants" for order
+                        .nop => {},
+                        .aconst_null => try stack_frame.operand_stack.push(.{ .reference = 0 }),
 
-                            .iload => |i| try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[i].int }),
-                            .iload_0 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[0].int }),
-                            .iload_1 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[1].int }),
-                            .iload_2 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[2].int }),
-                            .iload_3 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[3].int }),
+                        .iconst_m1 => try stack_frame.operand_stack.push(.{ .int = -1 }),
+                        .iconst_0 => try stack_frame.operand_stack.push(.{ .int = 0 }),
+                        .iconst_1 => try stack_frame.operand_stack.push(.{ .int = 1 }),
+                        .iconst_2 => try stack_frame.operand_stack.push(.{ .int = 2 }),
+                        .iconst_3 => try stack_frame.operand_stack.push(.{ .int = 3 }),
+                        .iconst_4 => try stack_frame.operand_stack.push(.{ .int = 4 }),
+                        .iconst_5 => try stack_frame.operand_stack.push(.{ .int = 5 }),
 
-                            .istore => |i| try stack_frame.setLocalVariable(i, .{ .int = stack_frame.operand_stack.pop().int }),
-                            .istore_0 => try stack_frame.setLocalVariable(0, .{ .int = stack_frame.operand_stack.pop().int }),
-                            .istore_1 => try stack_frame.setLocalVariable(1, .{ .int = stack_frame.operand_stack.pop().int }),
-                            .istore_2 => try stack_frame.setLocalVariable(2, .{ .int = stack_frame.operand_stack.pop().int }),
-                            .istore_3 => try stack_frame.setLocalVariable(3, .{ .int = stack_frame.operand_stack.pop().int }),
+                        .lconst_0 => try stack_frame.operand_stack.push(.{ .long = 0 }),
+                        .lconst_1 => try stack_frame.operand_stack.push(.{ .long = 1 }),
 
-                            .bipush => |value| try stack_frame.operand_stack.push(.{ .int = value }),
-                            .sipush => |value| try stack_frame.operand_stack.push(.{ .int = value }),
+                        .fconst_0 => try stack_frame.operand_stack.push(.{ .float = 0 }),
+                        .fconst_1 => try stack_frame.operand_stack.push(.{ .float = 1 }),
+                        .fconst_2 => try stack_frame.operand_stack.push(.{ .float = 2 }),
 
-                            .ldc => |index| {
-                                switch (stack_frame.class_file.resolveConstant(index)) {
-                                    .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f) }),
-                                    .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f) }),
-                                    .string => |s| {
-                                        var utf8 = class_file.resolveConstant(s.string_index).utf8;
-                                        var ref = try self.heap.newArray(.byte, @intCast(primitives.int, utf8.bytes.len));
-                                        var arr = self.heap.getArray(ref);
+                        .dconst_0 => try stack_frame.operand_stack.push(.{ .double = 0 }),
+                        .dconst_1 => try stack_frame.operand_stack.push(.{ .double = 1 }),
 
-                                        std.mem.copy(i8, arr.byte.slice, @bitCast([]i8, utf8.bytes));
+                        .iload => |i| try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[i].int }),
+                        .iload_0 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[0].int }),
+                        .iload_1 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[1].int }),
+                        .iload_2 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[2].int }),
+                        .iload_3 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[3].int }),
 
-                                        try stack_frame.operand_stack.push(.{ .reference = try self.new("java.lang.String", .{ref}) });
-                                    },
-                                    .class => |class| {
-                                        var class_name_slashes = class.getName(class_file.constant_pool);
-                                        var class_name = try utils.classToDots(self.allocator, class_name_slashes);
-                                        defer self.allocator.free(class_name);
+                        .istore => |i| try stack_frame.setLocalVariable(i, .{ .int = stack_frame.operand_stack.pop().int }),
+                        .istore_0 => try stack_frame.setLocalVariable(0, .{ .int = stack_frame.operand_stack.pop().int }),
+                        .istore_1 => try stack_frame.setLocalVariable(1, .{ .int = stack_frame.operand_stack.pop().int }),
+                        .istore_2 => try stack_frame.setLocalVariable(2, .{ .int = stack_frame.operand_stack.pop().int }),
+                        .istore_3 => try stack_frame.setLocalVariable(3, .{ .int = stack_frame.operand_stack.pop().int }),
 
-                                        try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name), &self.class_resolver) });
-                                    },
-                                    else => {
-                                        std.log.info("{s}", .{stack_frame.class_file.resolveConstant(index)});
-                                        unreachable;
-                                    },
-                                }
-                            },
-                            .ldc_w => |index| {
-                                switch (stack_frame.class_file.resolveConstant(index)) {
-                                    .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f) }),
-                                    .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f) }),
-                                    .string => |s| {
-                                        var utf8 = class_file.resolveConstant(s.string_index).utf8;
-                                        var ref = try self.heap.newArray(.byte, @intCast(primitives.int, utf8.bytes.len));
-                                        var arr = self.heap.getArray(ref);
+                        .bipush => |value| try stack_frame.operand_stack.push(.{ .int = value }),
+                        .sipush => |value| try stack_frame.operand_stack.push(.{ .int = value }),
 
-                                        std.mem.copy(i8, arr.byte.slice, @bitCast([]i8, utf8.bytes));
+                        .ldc => |index| {
+                            switch (stack_frame.class_file.getConstantPoolEntry(index)) {
+                                .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f) }),
+                                .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f) }),
+                                .string => |s| {
+                                    var utf8 = class_file.getConstantPoolEntry(s.string_index).utf8;
+                                    var ref = try self.heap.newArray(.byte, @intCast(primitives.int, utf8.bytes.len));
+                                    var arr = self.heap.getArray(ref);
 
-                                        try stack_frame.operand_stack.push(.{ .reference = try self.new("java.lang.String", .{ref}) });
-                                    },
-                                    else => {
-                                        std.log.info("{s}", .{stack_frame.class_file.resolveConstant(index)});
-                                        unreachable;
-                                    },
-                                }
-                            },
-                            .ldc2_w => |index| {
-                                switch (stack_frame.class_file.resolveConstant(index)) {
-                                    .double => |d| try stack_frame.operand_stack.push(.{ .double = @bitCast(primitives.double, d) }),
-                                    .long => |l| try stack_frame.operand_stack.push(.{ .long = @bitCast(primitives.long, l) }),
+                                    std.mem.copy(i8, arr.byte.slice, @bitCast([]i8, utf8.bytes));
+
+                                    try stack_frame.operand_stack.push(.{ .reference = try self.new("java.lang.String", .{ref}) });
+                                },
+                                .class => |class| {
+                                    var class_name_slashes = class.getName(class_file.constant_pool);
+                                    var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                                    defer self.allocator.free(class_name);
+
+                                    try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name), self.class_resolver) });
+                                },
+                                else => {
+                                    std.log.info("{s}", .{stack_frame.class_file.getConstantPoolEntry(index)});
+                                    unreachable;
+                                },
+                            }
+                        },
+                        .ldc_w => |index| {
+                            switch (stack_frame.class_file.getConstantPoolEntry(index)) {
+                                .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f) }),
+                                .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f) }),
+                                .string => |s| {
+                                    var utf8 = class_file.getConstantPoolEntry(s.string_index).utf8;
+                                    var ref = try self.heap.newArray(.byte, @intCast(primitives.int, utf8.bytes.len));
+                                    var arr = self.heap.getArray(ref);
+
+                                    std.mem.copy(i8, arr.byte.slice, @bitCast([]i8, utf8.bytes));
+
+                                    try stack_frame.operand_stack.push(.{ .reference = try self.new("java.lang.String", .{ref}) });
+                                },
+                                else => {
+                                    std.log.info("{s}", .{stack_frame.class_file.getConstantPoolEntry(index)});
+                                    unreachable;
+                                },
+                            }
+                        },
+                        .ldc2_w => |index| {
+                            switch (stack_frame.class_file.getConstantPoolEntry(index)) {
+                                .double => |d| try stack_frame.operand_stack.push(.{ .double = @bitCast(primitives.double, d) }),
+                                .long => |l| try stack_frame.operand_stack.push(.{ .long = @bitCast(primitives.long, l) }),
+                                else => unreachable,
+                            }
+                        },
+
+                        // Loads
+                        // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Loads" for order
+
+                        .iinc => |iinc| stack_frame.local_variables.items[iinc.index].int += iinc.@"const",
+
+                        .fload => |i| try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[i].float }),
+                        .fload_0 => try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[0].float }),
+                        .fload_1 => try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[1].float }),
+                        .fload_2 => try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[2].float }),
+                        .fload_3 => try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[3].float }),
+
+                        .fstore => |i| try stack_frame.setLocalVariable(i, .{ .float = stack_frame.operand_stack.pop().float }),
+                        .fstore_0 => try stack_frame.setLocalVariable(0, .{ .float = stack_frame.operand_stack.pop().float }),
+                        .fstore_1 => try stack_frame.setLocalVariable(1, .{ .float = stack_frame.operand_stack.pop().float }),
+                        .fstore_2 => try stack_frame.setLocalVariable(2, .{ .float = stack_frame.operand_stack.pop().float }),
+                        .fstore_3 => try stack_frame.setLocalVariable(3, .{ .float = stack_frame.operand_stack.pop().float }),
+
+                        .dload => |i| try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[i].double }),
+                        .dload_0 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[0].double }),
+                        .dload_1 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[1].double }),
+                        .dload_2 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[2].double }),
+                        .dload_3 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[3].double }),
+
+                        .dstore => |i| try stack_frame.setLocalVariable(i, .{ .double = stack_frame.operand_stack.pop().double }),
+                        .dstore_0 => try stack_frame.setLocalVariable(0, .{ .double = stack_frame.operand_stack.pop().double }),
+                        .dstore_1 => try stack_frame.setLocalVariable(1, .{ .double = stack_frame.operand_stack.pop().double }),
+                        .dstore_2 => try stack_frame.setLocalVariable(2, .{ .double = stack_frame.operand_stack.pop().double }),
+                        .dstore_3 => try stack_frame.setLocalVariable(3, .{ .double = stack_frame.operand_stack.pop().double }),
+
+                        .aload => |i| try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[i].reference }),
+                        .aload_0 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[0].reference }),
+                        .aload_1 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[1].reference }),
+                        .aload_2 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[2].reference }),
+                        .aload_3 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[3].reference }),
+
+                        .astore => |i| try stack_frame.setLocalVariable(i, .{ .reference = stack_frame.operand_stack.pop().reference }),
+                        .astore_0 => try stack_frame.setLocalVariable(0, .{ .reference = stack_frame.operand_stack.pop().reference }),
+                        .astore_1 => try stack_frame.setLocalVariable(1, .{ .reference = stack_frame.operand_stack.pop().reference }),
+                        .astore_2 => try stack_frame.setLocalVariable(2, .{ .reference = stack_frame.operand_stack.pop().reference }),
+                        .astore_3 => try stack_frame.setLocalVariable(3, .{ .reference = stack_frame.operand_stack.pop().reference }),
+
+                        .iadd => try stack_frame.operand_stack.push(.{ .int = stack_frame.operand_stack.pop().int + stack_frame.operand_stack.pop().int }),
+                        .imul => try stack_frame.operand_stack.push(.{ .int = stack_frame.operand_stack.pop().int * stack_frame.operand_stack.pop().int }),
+                        .isub => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { a: primitives.int, b: primitives.int });
+                            try stack_frame.operand_stack.push(.{ .int = stackvals.a - stackvals.b });
+                        },
+                        .idiv => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
+                            try stack_frame.operand_stack.push(.{ .int = @divTrunc(stackvals.numerator, stackvals.denominator) });
+                        },
+                        // bitwise ops
+                        .iand => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
+                            try stack_frame.operand_stack.push(.{ .int = stackvals.numerator & stackvals.denominator });
+                        },
+                        .ior => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
+                            try stack_frame.operand_stack.push(.{ .int = stackvals.numerator | stackvals.denominator });
+                        },
+                        .ixor => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
+                            try stack_frame.operand_stack.push(.{ .int = stackvals.numerator ^ stackvals.denominator });
+                        },
+                        .iushr => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
+                            try stack_frame.operand_stack.push(.{ .int = stackvals.numerator >> @intCast(std.math.Log2Int(primitives.int), stackvals.denominator) });
+                        },
+
+                        .fadd => try stack_frame.operand_stack.push(.{ .float = stack_frame.operand_stack.pop().float + stack_frame.operand_stack.pop().float }),
+                        .fmul => try stack_frame.operand_stack.push(.{ .float = stack_frame.operand_stack.pop().float * stack_frame.operand_stack.pop().float }),
+                        .fsub => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { a: primitives.float, b: primitives.float });
+                            try stack_frame.operand_stack.push(.{ .float = stackvals.a - stackvals.b });
+                        },
+                        .fdiv => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.float, denominator: primitives.float });
+                            try stack_frame.operand_stack.push(.{ .float = stackvals.numerator / stackvals.denominator });
+                        },
+
+                        .dadd => try stack_frame.operand_stack.push(.{ .double = stack_frame.operand_stack.pop().double + stack_frame.operand_stack.pop().double }),
+                        .dmul => try stack_frame.operand_stack.push(.{ .double = stack_frame.operand_stack.pop().double * stack_frame.operand_stack.pop().double }),
+                        .dsub => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { a: primitives.double, b: primitives.double });
+                            try stack_frame.operand_stack.push(.{ .double = stackvals.a - stackvals.b });
+                        },
+                        .ddiv => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.double, denominator: primitives.double });
+                            try stack_frame.operand_stack.push(.{ .double = stackvals.numerator / stackvals.denominator });
+                        },
+
+                        // Conditionals / jumps
+                        // TODO: Implement all conditions (int comparison, 0 comparison, etc.)
+                        .goto => |offset| {
+                            try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                        },
+
+                        // Stack
+                        // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Stack" for order
+                        .pop => _ = stack_frame.operand_stack.pop(),
+                        .pop2 => {
+                            var first = stack_frame.operand_stack.pop();
+                            if (first != .double and first != .long)
+                                _ = stack_frame.operand_stack.pop();
+                        },
+                        .dup => try stack_frame.operand_stack.push(stack_frame.operand_stack.array_list.items[stack_frame.operand_stack.array_list.items.len - 1]),
+                        // TODO: Implement the rest of the dupe squad
+                        .swap => {
+                            var first = stack_frame.operand_stack.pop();
+                            var second = stack_frame.operand_stack.pop();
+
+                            std.debug.assert(first != .double and
+                                first != .long and
+                                second != .double and
+                                second != .long);
+
+                            try stack_frame.operand_stack.push(first);
+                            try stack_frame.operand_stack.push(second);
+                        },
+
+                        // Conversions
+                        // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Conversions" for order
+                        .i2l => try stack_frame.operand_stack.push(.{ .long = @intCast(primitives.long, stack_frame.operand_stack.pop().int) }),
+                        .i2f => try stack_frame.operand_stack.push(.{ .float = @intToFloat(primitives.float, stack_frame.operand_stack.pop().int) }),
+                        .i2d => try stack_frame.operand_stack.push(.{ .double = @intToFloat(primitives.double, stack_frame.operand_stack.pop().int) }),
+
+                        .l2i => try stack_frame.operand_stack.push(.{ .int = @intCast(primitives.int, stack_frame.operand_stack.pop().long) }),
+                        .l2f => try stack_frame.operand_stack.push(.{ .float = @intToFloat(primitives.float, stack_frame.operand_stack.pop().long) }),
+                        .l2d => try stack_frame.operand_stack.push(.{ .double = @intToFloat(primitives.double, stack_frame.operand_stack.pop().long) }),
+
+                        .f2i => try stack_frame.operand_stack.push(.{ .int = @floatToInt(primitives.int, stack_frame.operand_stack.pop().float) }),
+                        .f2l => try stack_frame.operand_stack.push(.{ .long = @floatToInt(primitives.long, stack_frame.operand_stack.pop().float) }),
+                        .f2d => try stack_frame.operand_stack.push(.{ .double = @floatCast(primitives.double, stack_frame.operand_stack.pop().float) }),
+
+                        .d2i => try stack_frame.operand_stack.push(.{ .int = @floatToInt(primitives.int, stack_frame.operand_stack.pop().double) }),
+                        .d2l => try stack_frame.operand_stack.push(.{ .long = @floatToInt(primitives.long, stack_frame.operand_stack.pop().double) }),
+                        .d2f => try stack_frame.operand_stack.push(.{ .float = @floatCast(primitives.float, stack_frame.operand_stack.pop().double) }),
+
+                        .i2b => try stack_frame.operand_stack.push(.{ .byte = @intCast(primitives.byte, stack_frame.operand_stack.pop().int) }),
+                        .i2c => try stack_frame.operand_stack.push(.{ .char = @intCast(primitives.char, stack_frame.operand_stack.pop().int) }),
+                        .i2s => try stack_frame.operand_stack.push(.{ .short = @intCast(primitives.short, stack_frame.operand_stack.pop().int) }),
+
+                        // Java bad
+                        .newarray => |atype| {
+                            inline for (std.meta.fields(@TypeOf(atype))) |field| {
+                                if (atype == @intToEnum(@TypeOf(atype), field.value))
+                                    try stack_frame.operand_stack.push(.{ .reference = try self.heap.newArray(std.meta.stringToEnum(array.ArrayKind, field.name).?, stack_frame.operand_stack.pop().int) });
+                            }
+                        },
+                        .anewarray => |atype| {
+                            try stack_frame.operand_stack.push(.{ .reference = try self.heap.newArray(.reference, stack_frame.operand_stack.pop().int) });
+                        },
+                        .new => |index| {
+                            var class_name_slashes = class_file.getConstantPoolEntry(index).class.getName(class_file.constant_pool);
+                            var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                            defer self.allocator.free(class_name);
+
+                            try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name), self.class_resolver) });
+                        },
+
+                        .arraylength => try stack_frame.operand_stack.push(.{ .int = self.heap.getArray(stack_frame.operand_stack.pop().reference).length() }),
+
+                        .iastore, .lastore, .fastore, .dastore, .aastore, .bastore, .castore, .sastore => {
+                            var value = stack_frame.operand_stack.pop();
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { arrayref: primitives.reference, index: primitives.int });
+                            try self.heap.getArray(stackvals.arrayref).set(stackvals.index, value);
+                        },
+
+                        .iaload, .laload, .faload, .daload, .aaload, .baload, .caload, .saload => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { arrayref: primitives.reference, index: primitives.int });
+                            try stack_frame.operand_stack.push(try self.heap.getArray(stackvals.arrayref).get(stackvals.index));
+                        },
+
+                        // Invoke thangs
+                        .invokestatic, .invokespecial, .invokevirtual => |index| {
+                            var methodref = stack_frame.class_file.getConstantPoolEntry(index).methodref;
+                            var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
+                            var class_info = methodref.getClassInfo(class_file.constant_pool);
+
+                            var name = nti.getName(class_file.constant_pool);
+                            var class_name_slashes = class_info.getName(class_file.constant_pool);
+                            var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                            defer self.allocator.free(class_name);
+
+                            try self.useStaticClass(class_name);
+
+                            var descriptor_str = nti.getDescriptor(class_file.constant_pool);
+                            var method_desc = try descriptors.parseString(self.allocator, descriptor_str);
+
+                            var params = try self.allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len + if (opcode != .invokestatic) @as(usize, 1) else @as(usize, 0));
+
+                            // std.log.info("{s} {s} {s} {s}", .{ class_name, name, descriptor_str, stack_frame.operand_stack.array_list.items });
+                            var paramiiii: usize = method_desc.method.parameters.len;
+                            while (paramiiii > 0) : (paramiiii -= 1) {
+                                params[method_desc.method.parameters.len - paramiiii] = switch (method_desc.method.parameters[paramiiii - 1].*) {
+                                    .byte => .{ .byte = stack_frame.operand_stack.pop().byte },
+                                    .char => .{ .char = stack_frame.operand_stack.pop().char },
+
+                                    .int, .boolean => .{ .int = stack_frame.operand_stack.pop().int },
+                                    .long => .{ .long = stack_frame.operand_stack.pop().long },
+                                    .short => .{ .short = stack_frame.operand_stack.pop().short },
+
+                                    .float => .{ .float = stack_frame.operand_stack.pop().float },
+                                    .double => .{ .double = stack_frame.operand_stack.pop().double },
+
+                                    .object, .array => .{ .reference = stack_frame.operand_stack.pop().reference },
+                                    .method => unreachable,
+
                                     else => unreachable,
-                                }
-                            },
+                                };
+                            }
+                            if (opcode != .invokestatic) params[params.len - 1] = .{ .reference = stack_frame.operand_stack.pop().reference };
+                            std.mem.reverse(primitives.PrimitiveValue, params);
 
-                            // Loads
-                            // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Loads" for order
+                            var return_val = try self.interpret(try self.class_resolver.resolve(class_name), name, params);
+                            if (return_val != .@"void")
+                                try stack_frame.operand_stack.push(return_val);
 
-                            .iinc => |iinc| stack_frame.local_variables.items[iinc.index].int += iinc.@"const",
+                            std.log.info("return to method: {s}", .{descriptor_buf.items});
+                        },
+                        .invokeinterface => |iiparams| {
+                            var methodref = stack_frame.class_file.getConstantPoolEntry(opcodes.getIndex(iiparams)).interface_methodref;
+                            var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
+                            var class_info = methodref.getClassInfo(class_file.constant_pool);
 
-                            .fload => |i| try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[i].float }),
-                            .fload_0 => try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[0].float }),
-                            .fload_1 => try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[1].float }),
-                            .fload_2 => try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[2].float }),
-                            .fload_3 => try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[3].float }),
+                            var name = nti.getName(class_file.constant_pool);
+                            var class_name_slashes = class_info.getName(class_file.constant_pool);
+                            var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                            defer self.allocator.free(class_name);
 
-                            .fstore => |i| try stack_frame.setLocalVariable(i, .{ .float = stack_frame.operand_stack.pop().float }),
-                            .fstore_0 => try stack_frame.setLocalVariable(0, .{ .float = stack_frame.operand_stack.pop().float }),
-                            .fstore_1 => try stack_frame.setLocalVariable(1, .{ .float = stack_frame.operand_stack.pop().float }),
-                            .fstore_2 => try stack_frame.setLocalVariable(2, .{ .float = stack_frame.operand_stack.pop().float }),
-                            .fstore_3 => try stack_frame.setLocalVariable(3, .{ .float = stack_frame.operand_stack.pop().float }),
+                            try self.useStaticClass(class_name);
 
-                            .dload => |i| try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[i].double }),
-                            .dload_0 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[0].double }),
-                            .dload_1 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[1].double }),
-                            .dload_2 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[2].double }),
-                            .dload_3 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[3].double }),
+                            var descriptor_str = nti.getDescriptor(class_file.constant_pool);
+                            var method_desc = try descriptors.parseString(self.allocator, descriptor_str);
 
-                            .dstore => |i| try stack_frame.setLocalVariable(i, .{ .double = stack_frame.operand_stack.pop().double }),
-                            .dstore_0 => try stack_frame.setLocalVariable(0, .{ .double = stack_frame.operand_stack.pop().double }),
-                            .dstore_1 => try stack_frame.setLocalVariable(1, .{ .double = stack_frame.operand_stack.pop().double }),
-                            .dstore_2 => try stack_frame.setLocalVariable(2, .{ .double = stack_frame.operand_stack.pop().double }),
-                            .dstore_3 => try stack_frame.setLocalVariable(3, .{ .double = stack_frame.operand_stack.pop().double }),
+                            var params = try self.allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len + 1);
 
-                            .aload => |i| try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[i].reference }),
-                            .aload_0 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[0].reference }),
-                            .aload_1 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[1].reference }),
-                            .aload_2 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[2].reference }),
-                            .aload_3 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[3].reference }),
+                            // std.log.info("{s} {s} {s} {s}", .{ class_name, name, descriptor_str, stack_frame.operand_stack.array_list.items });
+                            var paramiiii: usize = method_desc.method.parameters.len;
+                            while (paramiiii > 0) : (paramiiii -= 1) {
+                                params[method_desc.method.parameters.len - paramiiii] = switch (method_desc.method.parameters[paramiiii - 1].*) {
+                                    .byte => .{ .byte = stack_frame.operand_stack.pop().byte },
+                                    .char => .{ .char = stack_frame.operand_stack.pop().char },
 
-                            .astore => |i| try stack_frame.setLocalVariable(i, .{ .reference = stack_frame.operand_stack.pop().reference }),
-                            .astore_0 => try stack_frame.setLocalVariable(0, .{ .reference = stack_frame.operand_stack.pop().reference }),
-                            .astore_1 => try stack_frame.setLocalVariable(1, .{ .reference = stack_frame.operand_stack.pop().reference }),
-                            .astore_2 => try stack_frame.setLocalVariable(2, .{ .reference = stack_frame.operand_stack.pop().reference }),
-                            .astore_3 => try stack_frame.setLocalVariable(3, .{ .reference = stack_frame.operand_stack.pop().reference }),
+                                    .int, .boolean => .{ .int = stack_frame.operand_stack.pop().int },
+                                    .long => .{ .long = stack_frame.operand_stack.pop().long },
+                                    .short => .{ .short = stack_frame.operand_stack.pop().short },
 
-                            .iadd => try stack_frame.operand_stack.push(.{ .int = stack_frame.operand_stack.pop().int + stack_frame.operand_stack.pop().int }),
-                            .imul => try stack_frame.operand_stack.push(.{ .int = stack_frame.operand_stack.pop().int * stack_frame.operand_stack.pop().int }),
-                            .isub => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { a: primitives.int, b: primitives.int });
-                                try stack_frame.operand_stack.push(.{ .int = stackvals.a - stackvals.b });
-                            },
-                            .idiv => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
-                                try stack_frame.operand_stack.push(.{ .int = @divTrunc(stackvals.numerator, stackvals.denominator) });
-                            },
-                            // bitwise ops
-                            .iand => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
-                                try stack_frame.operand_stack.push(.{ .int = stackvals.numerator & stackvals.denominator });
-                            },
-                            .ior => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
-                                try stack_frame.operand_stack.push(.{ .int = stackvals.numerator | stackvals.denominator });
-                            },
-                            .ixor => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
-                                try stack_frame.operand_stack.push(.{ .int = stackvals.numerator ^ stackvals.denominator });
-                            },
-                            .iushr => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.int, denominator: primitives.int });
-                                try stack_frame.operand_stack.push(.{ .int = stackvals.numerator >> @intCast(std.math.Log2Int(primitives.int), stackvals.denominator) });
-                            },
+                                    .float => .{ .float = stack_frame.operand_stack.pop().float },
+                                    .double => .{ .double = stack_frame.operand_stack.pop().double },
 
-                            .fadd => try stack_frame.operand_stack.push(.{ .float = stack_frame.operand_stack.pop().float + stack_frame.operand_stack.pop().float }),
-                            .fmul => try stack_frame.operand_stack.push(.{ .float = stack_frame.operand_stack.pop().float * stack_frame.operand_stack.pop().float }),
-                            .fsub => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { a: primitives.float, b: primitives.float });
-                                try stack_frame.operand_stack.push(.{ .float = stackvals.a - stackvals.b });
-                            },
-                            .fdiv => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.float, denominator: primitives.float });
-                                try stack_frame.operand_stack.push(.{ .float = stackvals.numerator / stackvals.denominator });
-                            },
+                                    .object, .array => .{ .reference = stack_frame.operand_stack.pop().reference },
+                                    .method => unreachable,
 
-                            .dadd => try stack_frame.operand_stack.push(.{ .double = stack_frame.operand_stack.pop().double + stack_frame.operand_stack.pop().double }),
-                            .dmul => try stack_frame.operand_stack.push(.{ .double = stack_frame.operand_stack.pop().double * stack_frame.operand_stack.pop().double }),
-                            .dsub => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { a: primitives.double, b: primitives.double });
-                                try stack_frame.operand_stack.push(.{ .double = stackvals.a - stackvals.b });
-                            },
-                            .ddiv => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { numerator: primitives.double, denominator: primitives.double });
-                                try stack_frame.operand_stack.push(.{ .double = stackvals.numerator / stackvals.denominator });
-                            },
+                                    else => unreachable,
+                                };
+                            }
+                            if (opcode != .invokestatic) params[params.len - 1] = .{ .reference = stack_frame.operand_stack.pop().reference };
+                            std.mem.reverse(primitives.PrimitiveValue, params);
 
-                            // Conditionals / jumps
-                            // TODO: Implement all conditions (int comparison, 0 comparison, etc.)
-                            .goto => |offset| {
+                            var return_val = try self.interpret(self.heap.getObject(params[0].reference).class_file, name, params);
+                            if (return_val != .@"void")
+                                try stack_frame.operand_stack.push(return_val);
+
+                            std.log.info("return to method: {s}", .{descriptor_buf.items});
+                        },
+
+                        // Return
+                        .ireturn, .freturn, .dreturn, .areturn => return stack_frame.operand_stack.pop(),
+                        .@"return" => return .@"void",
+
+                        // Comparisons
+                        // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Comparisons" for order
+                        .lcmp => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.long, value2: primitives.long });
+                            try stack_frame.operand_stack.push(.{ .int = if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else @as(primitives.int, -1) });
+                        },
+                        .fcmpl, .fcmpg => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.float, value2: primitives.float });
+                            try stack_frame.operand_stack.push(.{ .int = if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else @as(primitives.int, -1) });
+                        },
+                        .dcmpl, .dcmpg => {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.double, value2: primitives.double });
+                            try stack_frame.operand_stack.push(.{ .int = if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else @as(primitives.int, -1) });
+                        },
+
+                        .ifeq => |offset| {
+                            var value = stack_frame.operand_stack.pop().int;
+                            if (value == 0) {
                                 try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                            },
+                            }
+                        },
+                        .ifne => |offset| {
+                            var value = stack_frame.operand_stack.pop().int;
+                            if (value != 0) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
 
-                            // Stack
-                            // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Stack" for order
-                            .pop => _ = stack_frame.operand_stack.pop(),
-                            .pop2 => {
-                                var first = stack_frame.operand_stack.pop();
-                                if (first != .double and first != .long)
-                                    _ = stack_frame.operand_stack.pop();
-                            },
-                            .dup => try stack_frame.operand_stack.push(stack_frame.operand_stack.array_list.items[stack_frame.operand_stack.array_list.items.len - 1]),
-                            // TODO: Implement the rest of the dupe squad
-                            .swap => {
-                                var first = stack_frame.operand_stack.pop();
-                                var second = stack_frame.operand_stack.pop();
+                        .iflt => |offset| {
+                            var value = stack_frame.operand_stack.pop().int;
+                            if (value < 0) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
+                        .ifge => |offset| {
+                            var value = stack_frame.operand_stack.pop().int;
+                            if (value >= 0) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
+                        .ifgt => |offset| {
+                            var value = stack_frame.operand_stack.pop().int;
+                            if (value > 0) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
+                        .ifle => |offset| {
+                            var value = stack_frame.operand_stack.pop().int;
+                            if (value <= 0) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
 
-                                std.debug.assert(first != .double and
-                                    first != .long and
-                                    second != .double and
-                                    second != .long);
+                        .if_icmpeq => |offset| {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
+                            if (stackvals.value1 == stackvals.value2) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
+                        .if_icmpne => |offset| {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
+                            if (stackvals.value1 != stackvals.value2) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
+                        .if_icmplt => |offset| {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
+                            if (stackvals.value1 < stackvals.value2) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
+                        .if_icmpge => |offset| {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
+                            if (stackvals.value1 >= stackvals.value2) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
+                        .if_icmpgt => |offset| {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
+                            if (stackvals.value1 > stackvals.value2) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
+                        .if_icmple => |offset| {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
+                            if (stackvals.value1 <= stackvals.value2) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
 
-                                try stack_frame.operand_stack.push(first);
-                                try stack_frame.operand_stack.push(second);
-                            },
+                        .if_acmpeq => |offset| {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.reference, value2: primitives.reference });
+                            if (stackvals.value1 == stackvals.value2) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
+                        .if_acmpne => |offset| {
+                            var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.reference, value2: primitives.reference });
+                            if (stackvals.value1 != stackvals.value2) {
+                                try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
 
-                            // Conversions
-                            // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Conversions" for order
-                            .i2l => try stack_frame.operand_stack.push(.{ .long = @intCast(primitives.long, stack_frame.operand_stack.pop().int) }),
-                            .i2f => try stack_frame.operand_stack.push(.{ .float = @intToFloat(primitives.float, stack_frame.operand_stack.pop().int) }),
-                            .i2d => try stack_frame.operand_stack.push(.{ .double = @intToFloat(primitives.double, stack_frame.operand_stack.pop().int) }),
+                        // References
+                        // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "References" for order
+                        .getstatic => |index| {
+                            var fieldref = stack_frame.class_file.getConstantPoolEntry(index).fieldref;
 
-                            .l2i => try stack_frame.operand_stack.push(.{ .int = @intCast(primitives.int, stack_frame.operand_stack.pop().long) }),
-                            .l2f => try stack_frame.operand_stack.push(.{ .float = @intToFloat(primitives.float, stack_frame.operand_stack.pop().long) }),
-                            .l2d => try stack_frame.operand_stack.push(.{ .double = @intToFloat(primitives.double, stack_frame.operand_stack.pop().long) }),
+                            var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
+                            var name = nti.getName(class_file.constant_pool);
+                            var class_name_slashes = fieldref.getClassInfo(class_file.constant_pool).getName(class_file.constant_pool);
+                            var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                            defer self.allocator.free(class_name);
 
-                            .f2i => try stack_frame.operand_stack.push(.{ .int = @floatToInt(primitives.int, stack_frame.operand_stack.pop().float) }),
-                            .f2l => try stack_frame.operand_stack.push(.{ .long = @floatToInt(primitives.long, stack_frame.operand_stack.pop().float) }),
-                            .f2d => try stack_frame.operand_stack.push(.{ .double = @floatCast(primitives.double, stack_frame.operand_stack.pop().float) }),
+                            try self.useStaticClass(class_name);
 
-                            .d2i => try stack_frame.operand_stack.push(.{ .int = @floatToInt(primitives.int, stack_frame.operand_stack.pop().double) }),
-                            .d2l => try stack_frame.operand_stack.push(.{ .long = @floatToInt(primitives.long, stack_frame.operand_stack.pop().double) }),
-                            .d2f => try stack_frame.operand_stack.push(.{ .float = @floatCast(primitives.float, stack_frame.operand_stack.pop().double) }),
+                            var class = self.static_pool.getClass(class_name).?;
+                            try stack_frame.operand_stack.push(class.getField(name).?);
+                        },
+                        .putstatic => |index| {
+                            var fieldref = stack_frame.class_file.getConstantPoolEntry(index).fieldref;
 
-                            .i2b => try stack_frame.operand_stack.push(.{ .byte = @intCast(primitives.byte, stack_frame.operand_stack.pop().int) }),
-                            .i2c => try stack_frame.operand_stack.push(.{ .char = @intCast(primitives.char, stack_frame.operand_stack.pop().int) }),
-                            .i2s => try stack_frame.operand_stack.push(.{ .short = @intCast(primitives.short, stack_frame.operand_stack.pop().int) }),
+                            var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
+                            var name = nti.getName(class_file.constant_pool);
+                            var class_name_slashes = fieldref.getClassInfo(class_file.constant_pool).getName(class_file.constant_pool);
+                            var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                            defer self.allocator.free(class_name);
 
-                            // Java bad
-                            .newarray => |atype| {
-                                inline for (std.meta.fields(@TypeOf(atype))) |field| {
-                                    if (atype == @intToEnum(@TypeOf(atype), field.value))
-                                        try stack_frame.operand_stack.push(.{ .reference = try self.heap.newArray(std.meta.stringToEnum(array.ArrayKind, field.name).?, stack_frame.operand_stack.pop().int) });
-                                }
-                            },
-                            .anewarray => |atype| {
-                                try stack_frame.operand_stack.push(.{ .reference = try self.heap.newArray(.reference, stack_frame.operand_stack.pop().int) });
-                            },
-                            .new => |index| {
-                                var class_name_slashes = class_file.resolveConstant(index).class.getName(class_file.constant_pool);
-                                var class_name = try utils.classToDots(self.allocator, class_name_slashes);
-                                defer self.allocator.free(class_name);
+                            try self.useStaticClass(class_name);
 
-                                try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name), &self.class_resolver) });
-                            },
+                            var value = stack_frame.operand_stack.pop();
 
-                            .arraylength => try stack_frame.operand_stack.push(.{ .int = self.heap.getArray(stack_frame.operand_stack.pop().reference).length() }),
+                            try (self.static_pool.getClass(class_name).?).setField(name, value);
+                        },
+                        .getfield => |index| {
+                            var fieldref = stack_frame.class_file.getConstantPoolEntry(index).fieldref;
 
-                            .iastore, .lastore, .fastore, .dastore, .aastore, .bastore, .castore, .sastore => {
-                                var value = stack_frame.operand_stack.pop();
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { arrayref: primitives.reference, index: primitives.int });
-                                try self.heap.getArray(stackvals.arrayref).set(stackvals.index, value);
-                            },
+                            var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
+                            var name = nti.getName(class_file.constant_pool);
 
-                            .iaload, .laload, .faload, .daload, .aaload, .baload, .caload, .saload => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { arrayref: primitives.reference, index: primitives.int });
-                                try stack_frame.operand_stack.push(try self.heap.getArray(stackvals.arrayref).get(stackvals.index));
-                            },
+                            var objectref = stack_frame.operand_stack.pop().reference;
 
-                            // Invoke thangs
-                            .invokestatic, .invokespecial, .invokevirtual => |index| {
-                                var methodref = stack_frame.class_file.resolveConstant(index).methodref;
-                                var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
-                                var class_info = methodref.getClassInfo(class_file.constant_pool);
+                            try stack_frame.operand_stack.push(self.heap.getObject(objectref).getField(name).?);
+                        },
+                        .putfield => |index| {
+                            var fieldref = stack_frame.class_file.getConstantPoolEntry(index).fieldref;
 
-                                var name = nti.getName(class_file.constant_pool);
-                                var class_name_slashes = class_info.getName(class_file.constant_pool);
-                                var class_name = try utils.classToDots(self.allocator, class_name_slashes);
-                                defer self.allocator.free(class_name);
+                            var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
+                            var name = nti.getName(class_file.constant_pool);
 
-                                try self.useStaticClass(class_name);
+                            var value = stack_frame.operand_stack.pop();
+                            var objectref = stack_frame.operand_stack.pop().reference;
 
-                                var descriptor_str = nti.getDescriptor(class_file.constant_pool);
-                                var method_desc = try descriptors.parseString(self.allocator, descriptor_str);
+                            try self.heap.getObject(objectref).setField(name, value);
+                        },
 
-                                var params = try self.allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len + if (opcode != .invokestatic) @as(usize, 1) else @as(usize, 0));
-
-                                // std.log.info("{s} {s} {s} {s}", .{ class_name, name, descriptor_str, stack_frame.operand_stack.array_list.items });
-                                var paramiiii: usize = method_desc.method.parameters.len;
-                                while (paramiiii > 0) : (paramiiii -= 1) {
-                                    params[method_desc.method.parameters.len - paramiiii] = switch (method_desc.method.parameters[paramiiii - 1].*) {
-                                        .byte => .{ .byte = stack_frame.operand_stack.pop().byte },
-                                        .char => .{ .char = stack_frame.operand_stack.pop().char },
-
-                                        .int, .boolean => .{ .int = stack_frame.operand_stack.pop().int },
-                                        .long => .{ .long = stack_frame.operand_stack.pop().long },
-                                        .short => .{ .short = stack_frame.operand_stack.pop().short },
-
-                                        .float => .{ .float = stack_frame.operand_stack.pop().float },
-                                        .double => .{ .double = stack_frame.operand_stack.pop().double },
-
-                                        .object, .array => .{ .reference = stack_frame.operand_stack.pop().reference },
-                                        .method => unreachable,
-
-                                        else => unreachable,
-                                    };
-                                }
-                                if (opcode != .invokestatic) params[params.len - 1] = .{ .reference = stack_frame.operand_stack.pop().reference };
-                                std.mem.reverse(primitives.PrimitiveValue, params);
-
-                                var return_val = try self.interpret(try self.class_resolver.resolve(class_name), name, params);
-                                if (return_val != .@"void")
-                                    try stack_frame.operand_stack.push(return_val);
-
-                                std.log.info("return to method: {s}", .{descriptor_buf.items});
-                            },
-                            .invokeinterface => |iiparams| {
-                                var methodref = stack_frame.class_file.resolveConstant(opcodes.getIndex(iiparams)).interface_methodref;
-                                var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
-                                var class_info = methodref.getClassInfo(class_file.constant_pool);
-
-                                var name = nti.getName(class_file.constant_pool);
-                                var class_name_slashes = class_info.getName(class_file.constant_pool);
-                                var class_name = try utils.classToDots(self.allocator, class_name_slashes);
-                                defer self.allocator.free(class_name);
-
-                                try self.useStaticClass(class_name);
-
-                                var descriptor_str = nti.getDescriptor(class_file.constant_pool);
-                                var method_desc = try descriptors.parseString(self.allocator, descriptor_str);
-
-                                var params = try self.allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len + 1);
-
-                                // std.log.info("{s} {s} {s} {s}", .{ class_name, name, descriptor_str, stack_frame.operand_stack.array_list.items });
-                                var paramiiii: usize = method_desc.method.parameters.len;
-                                while (paramiiii > 0) : (paramiiii -= 1) {
-                                    params[method_desc.method.parameters.len - paramiiii] = switch (method_desc.method.parameters[paramiiii - 1].*) {
-                                        .byte => .{ .byte = stack_frame.operand_stack.pop().byte },
-                                        .char => .{ .char = stack_frame.operand_stack.pop().char },
-
-                                        .int, .boolean => .{ .int = stack_frame.operand_stack.pop().int },
-                                        .long => .{ .long = stack_frame.operand_stack.pop().long },
-                                        .short => .{ .short = stack_frame.operand_stack.pop().short },
-
-                                        .float => .{ .float = stack_frame.operand_stack.pop().float },
-                                        .double => .{ .double = stack_frame.operand_stack.pop().double },
-
-                                        .object, .array => .{ .reference = stack_frame.operand_stack.pop().reference },
-                                        .method => unreachable,
-
-                                        else => unreachable,
-                                    };
-                                }
-                                if (opcode != .invokestatic) params[params.len - 1] = .{ .reference = stack_frame.operand_stack.pop().reference };
-                                std.mem.reverse(primitives.PrimitiveValue, params);
-
-                                var return_val = try self.interpret(self.heap.getObject(params[0].reference).class_file, name, params);
-                                if (return_val != .@"void")
-                                    try stack_frame.operand_stack.push(return_val);
-
-                                std.log.info("return to method: {s}", .{descriptor_buf.items});
-                            },
-
-                            // Return
-                            .ireturn, .freturn, .dreturn, .areturn => return stack_frame.operand_stack.pop(),
-                            .@"return" => return .@"void",
-
-                            // Comparisons
-                            // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Comparisons" for order
-                            .lcmp => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.long, value2: primitives.long });
-                                try stack_frame.operand_stack.push(.{ .int = if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else @as(primitives.int, -1) });
-                            },
-                            .fcmpl, .fcmpg => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.float, value2: primitives.float });
-                                try stack_frame.operand_stack.push(.{ .int = if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else @as(primitives.int, -1) });
-                            },
-                            .dcmpl, .dcmpg => {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.double, value2: primitives.double });
-                                try stack_frame.operand_stack.push(.{ .int = if (stackvals.value1 > stackvals.value2) @as(primitives.int, 1) else if (stackvals.value1 == stackvals.value2) @as(primitives.int, 0) else @as(primitives.int, -1) });
-                            },
-
-                            .ifeq => |offset| {
-                                var value = stack_frame.operand_stack.pop().int;
-                                if (value == 0) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .ifne => |offset| {
-                                var value = stack_frame.operand_stack.pop().int;
-                                if (value != 0) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-
-                            .iflt => |offset| {
-                                var value = stack_frame.operand_stack.pop().int;
-                                if (value < 0) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .ifge => |offset| {
-                                var value = stack_frame.operand_stack.pop().int;
-                                if (value >= 0) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .ifgt => |offset| {
-                                var value = stack_frame.operand_stack.pop().int;
-                                if (value > 0) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .ifle => |offset| {
-                                var value = stack_frame.operand_stack.pop().int;
-                                if (value <= 0) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-
-                            .if_icmpeq => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
-                                if (stackvals.value1 == stackvals.value2) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .if_icmpne => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
-                                if (stackvals.value1 != stackvals.value2) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .if_icmplt => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
-                                if (stackvals.value1 < stackvals.value2) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .if_icmpge => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
-                                if (stackvals.value1 >= stackvals.value2) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .if_icmpgt => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
-                                if (stackvals.value1 > stackvals.value2) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .if_icmple => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.int, value2: primitives.int });
-                                if (stackvals.value1 <= stackvals.value2) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-
-                            .if_acmpeq => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.reference, value2: primitives.reference });
-                                if (stackvals.value1 == stackvals.value2) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-                            .if_acmpne => |offset| {
-                                var stackvals = stack_frame.operand_stack.popToStruct(struct { value1: primitives.reference, value2: primitives.reference });
-                                if (stackvals.value1 != stackvals.value2) {
-                                    try fbs.seekBy(offset - @intCast(i16, opcode.sizeOf()));
-                                }
-                            },
-
-                            // References
-                            // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "References" for order
-                            .getstatic => |index| {
-                                var fieldref = stack_frame.class_file.resolveConstant(index).fieldref;
-
-                                var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
-                                var name = nti.getName(class_file.constant_pool);
-                                var class_name_slashes = fieldref.getClassInfo(class_file.constant_pool).getName(class_file.constant_pool);
-                                var class_name = try utils.classToDots(self.allocator, class_name_slashes);
-                                defer self.allocator.free(class_name);
-
-                                try self.useStaticClass(class_name);
-
-                                var class = self.static_pool.getClass(class_name).?;
-                                try stack_frame.operand_stack.push(class.getField(name).?);
-                            },
-                            .putstatic => |index| {
-                                var fieldref = stack_frame.class_file.resolveConstant(index).fieldref;
-
-                                var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
-                                var name = nti.getName(class_file.constant_pool);
-                                var class_name_slashes = fieldref.getClassInfo(class_file.constant_pool).getName(class_file.constant_pool);
-                                var class_name = try utils.classToDots(self.allocator, class_name_slashes);
-                                defer self.allocator.free(class_name);
-
-                                try self.useStaticClass(class_name);
-
-                                var value = stack_frame.operand_stack.pop();
-
-                                try (self.static_pool.getClass(class_name).?).setField(name, value);
-                            },
-                            .getfield => |index| {
-                                var fieldref = stack_frame.class_file.resolveConstant(index).fieldref;
-
-                                var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
-                                var name = nti.getName(class_file.constant_pool);
-
-                                var objectref = stack_frame.operand_stack.pop().reference;
-
-                                try stack_frame.operand_stack.push(self.heap.getObject(objectref).getField(name).?);
-                            },
-                            .putfield => |index| {
-                                var fieldref = stack_frame.class_file.resolveConstant(index).fieldref;
-
-                                var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
-                                var name = nti.getName(class_file.constant_pool);
-
-                                var value = stack_frame.operand_stack.pop();
-                                var objectref = stack_frame.operand_stack.pop().reference;
-
-                                try self.heap.getObject(objectref).setField(name, value);
-                            },
-
-                            else => unreachable,
-                        }
-                        opcode = opcodes.Operation.readFrom(fbs_reader) catch break;
+                        else => unreachable,
                     }
-                },
-                .unknown => {},
-            }
+                    opcode = opcodes.Operation.readFrom(fbs_reader) catch break;
+                }
+            },
+            .unknown => {},
         }
     }
 
-    return error.MethodNotFound;
+    unreachable;
 }

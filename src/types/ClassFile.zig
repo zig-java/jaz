@@ -24,15 +24,15 @@ pub const AccessFlags = struct {
 minor_version: u16,
 major_version: u16,
 /// Constants (referenced classes, etc.)
-constant_pool: []constant_pool_.ConstantPoolInfo,
+constant_pool: []constant_pool_.Entry,
 /// Is this class public, private, etc.
 access_flags: AccessFlags,
 /// Actual class in the ConstantPool
-this_class: constant_pool_.ConstantPoolClassInfo,
+this_class: constant_pool_.ClassInfo,
 /// Super class in the ConstantPool
-super_class: ?constant_pool_.ConstantPoolClassInfo,
+super_class: ?constant_pool_.ClassInfo,
 /// Interfaces this class inherits
-interfaces: []constant_pool_.ConstantPoolClassInfo,
+interfaces: []constant_pool_.ClassInfo,
 /// Fields this class has
 fields: []fields.FieldInfo,
 /// Methods the class has
@@ -40,22 +40,22 @@ methods: []methods.MethodInfo,
 /// Attributes the class has
 attributes: []attributes.AttributeInfo,
 
-pub fn resolveConstant(self: Self, index: u16) constant_pool_.ConstantPoolInfo {
+pub fn getConstantPoolEntry(self: Self, index: u16) constant_pool_.Entry {
     return self.constant_pool[index - 1];
 }
 
-pub fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {
+pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Self {
     var magic = try reader.readIntBig(u32);
     if (magic != 0xCAFEBABE) return error.BadMagicValue;
 
     var minor_version = try reader.readIntBig(u16);
     var major_version = try reader.readIntBig(u16);
     var constant_pool_count = try reader.readIntBig(u16);
-    var constant_pool = try allocator.alloc(constant_pool_.ConstantPoolInfo, constant_pool_count - 1);
+    var constant_pool = try allocator.alloc(constant_pool_.Entry, constant_pool_count - 1);
 
     var cpi: usize = 0;
     while (cpi < constant_pool.len) : (cpi += 1) {
-        var cp = try constant_pool_.ConstantPoolInfo.readFrom(allocator, reader);
+        var cp = try constant_pool_.Entry.parse(allocator, reader);
         constant_pool[cpi] = cp;
         if (cp == .double or cp == .long) {
             cpi += 1;
@@ -82,11 +82,11 @@ pub fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {
     var super_class = if (super_class_u == 0) null else constant_pool[super_class_u - 1].class;
 
     var interfaces_count = try reader.readIntBig(u16);
-    var interfaces = try allocator.alloc(constant_pool_.ConstantPoolClassInfo, interfaces_count);
+    var interfaces = try allocator.alloc(constant_pool_.ClassInfo, interfaces_count);
     for (interfaces) |*i| {
-        var k = try reader.readStruct(constant_pool_.ConstantPoolClassInfo);
+        var k = try reader.readStruct(constant_pool_.ClassInfo);
         if (std.Target.current.cpu.arch.endian() == .Little) {
-            inline for (std.meta.fields(constant_pool_.ConstantPoolClassInfo)) |f2| @field(k, f2.name) = @byteSwap(f2.field_type, @field(k, f2.name));
+            inline for (std.meta.fields(constant_pool_.ClassInfo)) |f2| @field(k, f2.name) = @byteSwap(f2.field_type, @field(k, f2.name));
         }
         i.* = k;
     }

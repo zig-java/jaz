@@ -4,7 +4,7 @@ const methods = @import("../types/methods.zig");
 const ClassFile = @import("../types/ClassFile.zig");
 const descriptors = @import("../types/descriptors.zig");
 
-pub fn formatMethod(allocator: *std.mem.Allocator, class_file: ClassFile, method: *methods.MethodInfo, writer: anytype) !void {
+pub fn formatMethod(allocator: *std.mem.Allocator, class_file: ClassFile, method: *const methods.MethodInfo, writer: anytype) !void {
     if (method.access_flags.public) _ = try writer.writeAll("public ");
     if (method.access_flags.private) _ = try writer.writeAll("private ");
     if (method.access_flags.protected) _ = try writer.writeAll("protected ");

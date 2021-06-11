@@ -17,15 +17,12 @@ pub fn main() anyerror!void {
         try std.fs.openDirAbsolute("C:/Programming/Garbo/javastd", .{ .access_sub_paths = true, .iterate = true }),
     };
     var class_resolver = try ClassResolver.init(allocator, &classpath);
-
-    var interpreter = Interpreter.init(allocator, class_resolver);
+    var interpreter = Interpreter.init(allocator, &class_resolver);
 
     var ben = try interpreter.new("jaztest.Benjamin", .{});
 
     try stdout.print("\n\n\n--- OUTPUT ---\n\n\n", .{});
-
     try stdout.print("Ben's Awesomeness: {d}\n", .{interpreter.call("jaztest.Benjamin.main", .{})});
-
     try stdout.print("\n\n\n--- END OUTPUT ---\n\n\n", .{});
 }
 

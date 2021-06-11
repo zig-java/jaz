@@ -26,12 +26,12 @@ pub const MethodInfo = struct {
     descriptor_index: u16,
     attributes: []attributes.AttributeInfo,
 
-    pub fn getName(self: *Self, class_file: ClassFile) []const u8 {
-        return class_file.resolveConstant(self.name_index).utf8.bytes;
+    pub fn getName(self: Self, class_file: ClassFile) []const u8 {
+        return class_file.getConstantPoolEntry(self.name_index).utf8.bytes;
     }
 
-    pub fn getDescriptor(self: *Self, class_file: ClassFile) []const u8 {
-        return class_file.resolveConstant(self.descriptor_index).utf8.bytes;
+    pub fn getDescriptor(self: Self, class_file: ClassFile) []const u8 {
+        return class_file.getConstantPoolEntry(self.descriptor_index).utf8.bytes;
     }
 
     pub fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {

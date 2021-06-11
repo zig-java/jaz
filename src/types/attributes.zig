@@ -14,7 +14,7 @@ pub const AttributeInfo = struct {
     info: []u8,
 
     pub fn getName(self: Self, class_file: ClassFile) []const u8 {
-        return class_file.resolveConstant(self.attribute_name_index).utf8.bytes;
+        return class_file.getConstantPoolEntry(self.attribute_name_index).utf8.bytes;
     }
 
     pub fn readFrom(allocator: *std.mem.Allocator, reader: anytype) !Self {

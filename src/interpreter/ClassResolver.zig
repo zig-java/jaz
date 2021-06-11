@@ -56,7 +56,7 @@ pub fn resolve(self: *ClassResolver, path_: []const u8) !ClassFile {
                 defer testClass.close();
 
                 var testReader = testClass.reader();
-                var class_file = try ClassFile.readFrom(self.allocator, testReader);
+                var class_file = try ClassFile.parse(self.allocator, testReader);
                 try self.hash_map.put(path, class_file);
 
                 return class_file;
