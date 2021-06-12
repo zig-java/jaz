@@ -238,33 +238,15 @@ pub const tableswitch_params = struct {
     jumps: []i32,
 
     pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !tableswitch_params {
-        // TODO: Fix naive implementation; doesn't work
-        var byte1: u8 = 0;
-        while (byte1 == 0) : (byte1 = try reader.readIntBig(u8)) {}
+        try reader.skipBytes(std.mem.alignForward(reader.context.pos, 4) - reader.context.pos, .{});
 
-        var default_offset_bytes: [4]u8 = undefined;
-        default_offset_bytes[0] = byte1;
-        _ = try reader.read(default_offset_bytes[1..]);
+        const default_offset = try reader.readIntBig(i32);
+        const low = try reader.readIntBig(i32);
+        const high = try reader.readIntBig(i32);
 
-        var default_offset = std.mem.readIntLittle(i32, &default_offset_bytes);
-
-        var low = try reader.readIntLittle(i32);
-        var high = try reader.readIntLittle(i32);
-
-        std.debug.assert(low <= high);
-        std.debug.assert(high - low + 1 >= 0);
-
-        var index: usize = 0;
         var jumps = try allocator.alloc(i32, @intCast(usize, high - low + 1));
-        while (index < high - low + 1) : (index += 1) {
-            // jumps[index] = try reader.readIntLittle(i32);
-            // std.log.info("{b} {b}", .{ @as(u32, 46), @bitCast(u32, jumps[index]) });
-
-            var aaaa: [4]u8 = undefined;
-            _ = try reader.read(&aaaa);
-
-            // jumps[index] = std.mem.bytesToValue(i32, &aaaa)
-        }
+        for (jumps) |*jump|
+            jump.* = try reader.readIntBig(i32);
 
         return tableswitch_params{ .default_offset = default_offset, .low = low, .high = high, .jumps = jumps };
     }
