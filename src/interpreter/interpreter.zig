@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Heap = @import("heap.zig");
+const Heap = @import("Heap.zig");
 const array = @import("array.zig");
 const utils = @import("utils.zig");
 const Object = @import("Object.zig");
