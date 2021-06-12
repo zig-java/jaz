@@ -232,13 +232,15 @@ pub const lookupswitch_params = packed struct {
 // TODO!!!!
 placeholder: u128 };
 pub const tableswitch_params = struct {
+    skipped: usize,
     default_offset: i32,
     low: i32,
     high: i32,
     jumps: []i32,
 
     pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !tableswitch_params {
-        try reader.skipBytes(std.mem.alignForward(reader.context.pos, 4) - reader.context.pos, .{});
+        var skipped = std.mem.alignForward(reader.context.pos, 4) - reader.context.pos;
+        try reader.skipBytes(skipped, .{});
 
         const default_offset = try reader.readIntBig(i32);
         const low = try reader.readIntBig(i32);
@@ -248,7 +250,13 @@ pub const tableswitch_params = struct {
         for (jumps) |*jump|
             jump.* = try reader.readIntBig(i32);
 
-        return tableswitch_params{ .default_offset = default_offset, .low = low, .high = high, .jumps = jumps };
+        return tableswitch_params{
+            .skipped = skipped,
+            .default_offset = default_offset,
+            .low = low,
+            .high = high,
+            .jumps = jumps,
+        };
     }
 };
 

@@ -675,12 +675,13 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                         },
 
                         .tableswitch => |s| {
+                            var size = 1 + s.skipped + 4 * 3 + 4 * s.jumps.len;
                             var index = stack_frame.operand_stack.pop().int;
-                            std.log.info("{d}", .{index});
+
                             if (index < 0 or index >= s.jumps.len) {
-                                try fbs.seekBy(s.default_offset - @intCast(i16, opcode.sizeOf()));
+                                try fbs.seekBy(s.default_offset - @intCast(i32, size));
                             } else {
-                                try fbs.seekBy(s.jumps[@intCast(usize, index)] - @intCast(i16, opcode.sizeOf()));
+                                try fbs.seekBy(s.jumps[@intCast(usize, index)] - @intCast(i32, size));
                             }
                         },
 

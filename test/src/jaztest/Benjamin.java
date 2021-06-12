@@ -12,25 +12,34 @@ public class Benjamin implements IZiguana {
     }
 
     public static int main() {
-        int z = 0;
+        int z = 2;
+        int b = 0;
 
         switch (z) {
             case 0:
-                return 20;
+                b = 10;
+                break;
 
             case 1:
-                return 69;
+                b = 69;
+                break;
 
             case 2:
-                return 420;
+                b = 420;
+                break;
 
             case 3:
-                return 15;
+                b = 15;
+                break;
         
             default:
                 break;
         }
 
-        return 0;
+        return b;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(main());
     }
 }
