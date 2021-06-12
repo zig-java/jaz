@@ -675,7 +675,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                         },
 
                         .tableswitch => |s| {
-                            var size = 1 + s.skipped + 4 * 3 + 4 * s.jumps.len;
+                            var size = 1 + s.skipped_bytes + 4 * 3 + 4 * s.jumps.len;
                             var index = stack_frame.operand_stack.pop().int;
 
                             if (index < 0 or index >= s.jumps.len) {
@@ -683,6 +683,20 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             } else {
                                 try fbs.seekBy(s.jumps[@intCast(usize, index)] - @intCast(i32, size));
                             }
+                        },
+
+                        .lookupswitch => |s| z: {
+                            var size = 1 + s.skipped_bytes + 4 * 2 + 8 * s.pairs.len;
+                            var match = stack_frame.operand_stack.pop().int;
+
+                            for (s.pairs) |pair| {
+                                if (match == pair.match) {
+                                    try fbs.seekBy(pair.offset - @intCast(i32, size));
+                                    break :z;
+                                }
+                            }
+
+                            try fbs.seekBy(s.default_offset - @intCast(i32, size));
                         },
 
                         else => unreachable,

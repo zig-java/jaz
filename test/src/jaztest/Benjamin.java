@@ -12,7 +12,7 @@ public class Benjamin implements IZiguana {
     }
 
     public static int main() {
-        int z = 2;
+        int z = 3000;
         int b = 0;
 
         switch (z) {
@@ -24,11 +24,7 @@ public class Benjamin implements IZiguana {
                 b = 69;
                 break;
 
-            case 2:
-                b = 420;
-                break;
-
-            case 3:
+            case 3000:
                 b = 15;
                 break;
         

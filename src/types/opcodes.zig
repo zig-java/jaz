@@ -228,19 +228,47 @@ pub const invokedynamic_params = packed struct { indexbyte1: u8, indexbyte2: u8,
 pub const invokeinterface_params = packed struct { indexbyte1: u8, indexbyte2: u8, count: u8, pad: u8 };
 
 /// TODO
-pub const lookupswitch_params = packed struct {
-// TODO!!!!
-placeholder: u128 };
+pub const LookupPair = struct {
+    match: i32,
+    offset: i32,
+};
+pub const lookupswitch_params = struct {
+    skipped_bytes: usize,
+    default_offset: i32,
+    pairs: []LookupPair,
+
+    pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !lookupswitch_params {
+        var skipped_bytes = std.mem.alignForward(reader.context.pos, 4) - reader.context.pos;
+        try reader.skipBytes(skipped_bytes, .{});
+
+        const default_offset = try reader.readIntBig(i32);
+        const npairs = try reader.readIntBig(i32);
+
+        var pairs = try allocator.alloc(LookupPair, @intCast(usize, npairs));
+        for (pairs) |*pair|
+            pair.* = LookupPair{
+                .match = try reader.readIntBig(i32),
+                .offset = try reader.readIntBig(i32),
+            };
+
+        return lookupswitch_params{
+            .skipped_bytes = skipped_bytes,
+            .default_offset = default_offset,
+            .pairs = pairs,
+        };
+    }
+};
+
 pub const tableswitch_params = struct {
-    skipped: usize,
+    skipped_bytes: usize,
     default_offset: i32,
     low: i32,
     high: i32,
     jumps: []i32,
 
     pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !tableswitch_params {
-        var skipped = std.mem.alignForward(reader.context.pos, 4) - reader.context.pos;
-        try reader.skipBytes(skipped, .{});
+        var skipped_bytes = std.mem.alignForward(reader.context.pos, 4) - reader.context.pos;
+        try reader.skipBytes(skipped_bytes, .{});
 
         const default_offset = try reader.readIntBig(i32);
         const low = try reader.readIntBig(i32);
@@ -251,7 +279,7 @@ pub const tableswitch_params = struct {
             jump.* = try reader.readIntBig(i32);
 
         return tableswitch_params{
-            .skipped = skipped,
+            .skipped_bytes = skipped_bytes,
             .default_offset = default_offset,
             .low = low,
             .high = high,
