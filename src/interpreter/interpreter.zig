@@ -149,7 +149,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                 var fbs = std.io.fixedBufferStream(code_attribute.code);
                 var fbs_reader = fbs.reader();
 
-                var opcode = try opcodes.Operation.readFrom(fbs_reader);
+                var opcode = try opcodes.Operation.parse(self.allocator, fbs_reader);
 
                 while (true) {
                     std.log.info((" " ** 8) ++ "{s}", .{opcode});
@@ -674,9 +674,19 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             try self.heap.getObject(objectref).setField(name, value);
                         },
 
+                        .tableswitch => |s| {
+                            var index = stack_frame.operand_stack.pop().int;
+                            std.log.info("{d}", .{index});
+                            if (index < 0 or index >= s.jumps.len) {
+                                try fbs.seekBy(s.default_offset - @intCast(i16, opcode.sizeOf()));
+                            } else {
+                                try fbs.seekBy(s.jumps[@intCast(usize, index)] - @intCast(i16, opcode.sizeOf()));
+                            }
+                        },
+
                         else => unreachable,
                     }
-                    opcode = opcodes.Operation.readFrom(fbs_reader) catch break;
+                    opcode = opcodes.Operation.parse(self.allocator, fbs_reader) catch break;
                 }
             },
             .unknown => {},

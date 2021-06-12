@@ -28,9 +28,9 @@ constant_pool: []constant_pool_.Entry,
 /// Is this class public, private, etc.
 access_flags: AccessFlags,
 /// Actual class in the ConstantPool
-this_class: constant_pool_.ClassInfo,
+this_class: *const constant_pool_.ClassInfo,
 /// Super class in the ConstantPool
-super_class: ?constant_pool_.ClassInfo,
+super_class: ?*const constant_pool_.ClassInfo,
 /// Interfaces this class inherits
 interfaces: []constant_pool_.ClassInfo,
 /// Fields this class has
@@ -76,10 +76,10 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Self {
     };
 
     var this_class_u = try reader.readIntBig(u16);
-    var this_class = constant_pool[this_class_u - 1].class;
+    var this_class = &constant_pool[this_class_u - 1].class;
 
     var super_class_u = try reader.readIntBig(u16);
-    var super_class = if (super_class_u == 0) null else constant_pool[super_class_u - 1].class;
+    var super_class = if (super_class_u == 0) null else &constant_pool[super_class_u - 1].class;
 
     var interfaces_count = try reader.readIntBig(u16);
     var interfaces = try allocator.alloc(constant_pool_.ClassInfo, interfaces_count);

@@ -231,6 +231,44 @@ pub const invokeinterface_params = packed struct { indexbyte1: u8, indexbyte2: u
 pub const lookupswitch_params = packed struct {
 // TODO!!!!
 placeholder: u128 };
+pub const tableswitch_params = struct {
+    default_offset: i32,
+    low: i32,
+    high: i32,
+    jumps: []i32,
+
+    pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !tableswitch_params {
+        // TODO: Fix naive implementation; doesn't work
+        var byte1: u8 = 0;
+        while (byte1 == 0) : (byte1 = try reader.readIntBig(u8)) {}
+
+        var default_offset_bytes: [4]u8 = undefined;
+        default_offset_bytes[0] = byte1;
+        _ = try reader.read(default_offset_bytes[1..]);
+
+        var default_offset = std.mem.readIntLittle(i32, &default_offset_bytes);
+
+        var low = try reader.readIntLittle(i32);
+        var high = try reader.readIntLittle(i32);
+
+        std.debug.assert(low <= high);
+        std.debug.assert(high - low + 1 >= 0);
+
+        var index: usize = 0;
+        var jumps = try allocator.alloc(i32, @intCast(usize, high - low + 1));
+        while (index < high - low + 1) : (index += 1) {
+            // jumps[index] = try reader.readIntLittle(i32);
+            // std.log.info("{b} {b}", .{ @as(u32, 46), @bitCast(u32, jumps[index]) });
+
+            var aaaa: [4]u8 = undefined;
+            _ = try reader.read(&aaaa);
+
+            // jumps[index] = std.mem.bytesToValue(i32, &aaaa)
+        }
+
+        return tableswitch_params{ .default_offset = default_offset, .low = low, .high = high, .jumps = jumps };
+    }
+};
 
 pub const multianewarray_params = packed struct { index: ConstantPoolRefOperation, dimensions: u8 };
 
@@ -295,6 +333,7 @@ pub const Operation = union(Opcode) {
     ldc_w: ConstantPoolRefOperation,
     ldc2_w: ConstantPoolRefOperation,
     lookupswitch: lookupswitch_params,
+    tableswitch: tableswitch_params,
     new: ConstantPoolRefOperation,
     multianewarray: multianewarray_params,
     lload: LocalIndexOperation,
@@ -442,7 +481,6 @@ pub const Operation = union(Opcode) {
     dcmpl,
     dcmpg,
     ret,
-    tableswitch,
     ireturn,
     lreturn,
     freturn,
@@ -468,12 +506,14 @@ pub const Operation = union(Opcode) {
         unreachable;
     }
 
-    pub fn readFrom(reader: anytype) !Self {
+    pub fn parse(allocator: *std.mem.Allocator, reader: anytype) !Self {
         var opcode = try reader.readIntBig(u8);
 
         inline for (std.meta.fields(Self)) |op| {
             if (@enumToInt(std.meta.stringToEnum(Opcode, op.name).?) == opcode) {
-                return @unionInit(Self, op.name, if (op.field_type == void) {} else if (@typeInfo(op.field_type) == .Struct) try reader.readStruct(op.field_type) else if (@typeInfo(op.field_type) == .Enum) try reader.readEnum(op.field_type, .Big) else if (@typeInfo(op.field_type) == .Int) try reader.readIntBig(op.field_type) else unreachable);
+                return @unionInit(Self, op.name, if (op.field_type == void) {} else if (@typeInfo(op.field_type) == .Struct) z: {
+                    break :z if (@hasDecl(op.field_type, "parse")) try @field(op.field_type, "parse")(allocator, reader) else try reader.readStruct(op.field_type);
+                } else if (@typeInfo(op.field_type) == .Enum) try reader.readEnum(op.field_type, .Big) else if (@typeInfo(op.field_type) == .Int) try reader.readIntBig(op.field_type) else unreachable);
             }
         }
 

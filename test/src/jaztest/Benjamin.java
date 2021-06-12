@@ -12,9 +12,25 @@ public class Benjamin implements IZiguana {
     }
 
     public static int main() {
-        Benjamin b = new Benjamin();
-        IZiguana i = b;
+        int z = 0;
 
-        return i.getAwesomeness();
+        switch (z) {
+            case 0:
+                return 20;
+
+            case 1:
+                return 69;
+
+            case 2:
+                return 420;
+
+            case 3:
+                return 15;
+        
+            default:
+                break;
+        }
+
+        return 0;
     }
 }
