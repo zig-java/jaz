@@ -2,6 +2,9 @@ const std = @import("std");
 const primitives = @import("interpreter/primitives.zig");
 const Interpreter = @import("interpreter/Interpreter.zig");
 const ClassResolver = @import("interpreter/ClassResolver.zig");
+// In order to build, you first must create src/conf.zig with contents
+// `pub const conf = .{.javastd_path = "..."};`
+const conf = @import("conf.zig").conf;
 
 pub fn main() anyerror!void {
     const allocator = std.heap.page_allocator;
@@ -14,7 +17,7 @@ pub fn main() anyerror!void {
         // 2. Open `java.base.jmod` with a dearchiving tool
         // 3. Plop the content of `classes` (excluding module_info) into a new directory
         // 4. Set the string below to the path of that new directory
-        try std.fs.openDirAbsolute("C:/Programming/Garbo/javastd", .{ .access_sub_paths = true, .iterate = true }),
+        try std.fs.openDirAbsolute(conf.javastd_path, .{ .access_sub_paths = true, .iterate = true }),
     };
     var class_resolver = try ClassResolver.init(allocator, &classpath);
     var interpreter = Interpreter.init(allocator, &class_resolver);
