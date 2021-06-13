@@ -11,6 +11,9 @@ To try out jaz for yourself, install jvm 16, then run the following commands:
 # Compiles Java source
 javac test/src/jaztest/*.java
 
+# Adds user path to javastd
+echo "pub const conf = .{.javastd_path = \"/path/to/javastd\"};" > src/conf.zig
+
 # Runs demo
 zig build run
 ```
