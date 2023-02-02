@@ -1,19 +1,21 @@
 const std = @import("std");
 const Object = @import("Object.zig");
 const array = @import("array.zig");
-const ClassFile = @import("../types/ClassFile.zig");
 const primitives = @import("primitives.zig");
 const ClassResolver = @import("ClassResolver.zig");
 
+const cf = @import("cf");
+const ClassFile = cf.ClassFile;
+
 const Heap = @This();
 
-allocator: *std.mem.Allocator,
+allocator: std.mem.Allocator,
 heap_values: std.ArrayList(HeapValue),
 first_empty_index: ?usize = null,
 
 pub const HeapValue = union(enum) { object: Object, array: array.Array, empty: void };
 
-pub fn init(allocator: *std.mem.Allocator) Heap {
+pub fn init(allocator: std.mem.Allocator) Heap {
     return .{ .allocator = allocator, .heap_values = std.ArrayList(HeapValue).init(allocator) };
 }
 
@@ -38,7 +40,7 @@ pub fn get(self: *Heap, reference: usize) *HeapValue {
     return &self.heap_values.items[reference - 1];
 }
 
-pub fn newObject(self: *Heap, class_file: ClassFile, class_resolver: *ClassResolver) !usize {
+pub fn newObject(self: *Heap, class_file: *const ClassFile, class_resolver: *ClassResolver) !usize {
     var obj = try Object.initNonStatic(self.allocator, class_file, class_resolver);
     var n = try self.new();
     n.value.* = .{ .object = obj };

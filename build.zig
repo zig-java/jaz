@@ -12,6 +12,7 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     const exe = b.addExecutable("jaz", "src/main.zig");
+    exe.addPackagePath("cf", "libs/cf/cf.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.install();

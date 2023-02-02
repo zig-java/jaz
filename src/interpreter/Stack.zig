@@ -5,7 +5,7 @@ const Self = @This();
 
 array_list: std.ArrayList(primitives.PrimitiveValue),
 
-pub fn init(allocator: *std.mem.Allocator) Self {
+pub fn init(allocator: std.mem.Allocator) Self {
     return .{ .array_list = std.ArrayList(primitives.PrimitiveValue).init(allocator) };
 }
 
@@ -18,7 +18,7 @@ pub fn popToStruct(self: *Self, comptime T: type) T {
     comptime var i: usize = 0;
     inline while (i < std.meta.fields(T).len) : (i += 1) {
         comptime var field = std.meta.fields(T)[std.meta.fields(T).len - 1 - i];
-        @field(res, field.name) = switch (field.field_type) {
+        @field(res, field.name) = switch (field.type) {
             primitives.byte => self.pop().byte,
             primitives.short => self.pop().short,
             primitives.int => self.pop().int,

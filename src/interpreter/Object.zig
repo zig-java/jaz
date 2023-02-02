@@ -1,38 +1,40 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 const primitives = @import("primitives.zig");
-const descriptors = @import("../types/descriptors.zig");
-const ClassFile = @import("../types/ClassFile.zig");
 const ClassResolver = @import("ClassResolver.zig");
+
+const cf = @import("cf");
+const descriptors = cf.descriptors;
+const ClassFile = cf.ClassFile;
 
 const Object = @This();
 
 pub const ObjectFieldInfo = struct { hash: u64, kind: primitives.PrimitiveValueKind };
 
-allocator: *std.mem.Allocator,
-class_file: ClassFile,
+allocator: std.mem.Allocator,
+class_file: *const ClassFile,
 field_info: []ObjectFieldInfo,
 field_data_pool: []u8,
 
 // TODO: Store field info somewhere once generated!
 
-pub fn genNonStaticFieldInfo(allocator: *std.mem.Allocator, arr: *std.ArrayList(ObjectFieldInfo), class_file: ClassFile, class_resolver: *ClassResolver) anyerror!void {
+pub fn genNonStaticFieldInfo(allocator: std.mem.Allocator, arr: *std.ArrayList(ObjectFieldInfo), class_file: *const ClassFile, class_resolver: *ClassResolver) anyerror!void {
     if (class_file.super_class) |super| {
-        var class_name_slashes = super.getName(class_file.constant_pool);
-        var class_name = try utils.classToDots(allocator, class_name_slashes);
+        var class_name_slashes = class_file.constant_pool.get(super).class.getName().bytes;
+        var class_name = class_name_slashes;
         defer allocator.free(class_name);
 
-        try genNonStaticFieldInfo(allocator, arr, try class_resolver.resolve(class_name), class_resolver);
+        try genNonStaticFieldInfo(allocator, arr, (try class_resolver.resolve(class_name)).?, class_resolver);
     }
 
-    for (class_file.fields) |*field| {
+    for (class_file.fields.items) |*field| {
         if (field.access_flags.static) continue;
 
-        var desc = try descriptors.parseString(allocator, field.getDescriptor(class_file));
+        var desc = try descriptors.parseString(allocator, field.getDescriptor().bytes);
         defer desc.deinit(allocator);
 
         try arr.append(.{
-            .hash = std.hash.Wyhash.hash(arr.items.len, field.getName(class_file)),
+            .hash = std.hash.Wyhash.hash(arr.items.len, field.getName().bytes),
             .kind = switch (desc.*) {
                 .byte => .byte,
                 .char => .char,
@@ -52,21 +54,21 @@ pub fn genNonStaticFieldInfo(allocator: *std.mem.Allocator, arr: *std.ArrayList(
     }
 }
 
-pub fn initNonStatic(allocator: *std.mem.Allocator, class_file: ClassFile, class_resolver: *ClassResolver) !Object {
+pub fn initNonStatic(allocator: std.mem.Allocator, class_file: *const ClassFile, class_resolver: *ClassResolver) !Object {
     var arr = std.ArrayList(ObjectFieldInfo).init(allocator);
     try genNonStaticFieldInfo(allocator, &arr, class_file, class_resolver);
-    return init(allocator, class_file, arr.toOwnedSlice());
+    return init(allocator, class_file, try arr.toOwnedSlice());
 }
 
-pub fn genStaticFieldInfo(allocator: *std.mem.Allocator, arr: *std.ArrayList(ObjectFieldInfo), class_file: ClassFile) anyerror!void {
-    for (class_file.fields) |*field| {
+pub fn genStaticFieldInfo(allocator: std.mem.Allocator, arr: *std.ArrayList(ObjectFieldInfo), class_file: *const ClassFile) anyerror!void {
+    for (class_file.fields.items) |*field| {
         if (!field.access_flags.static) continue;
 
-        var desc = try descriptors.parseString(allocator, field.getDescriptor(class_file));
+        var desc = try descriptors.parseString(allocator, field.getDescriptor().bytes);
         defer desc.deinit(allocator);
 
         try arr.append(.{
-            .hash = std.hash.Wyhash.hash(arr.items.len, field.getName(class_file)),
+            .hash = std.hash.Wyhash.hash(arr.items.len, field.getName().bytes),
             .kind = switch (desc.*) {
                 .byte => .byte,
                 .char => .char,
@@ -86,13 +88,13 @@ pub fn genStaticFieldInfo(allocator: *std.mem.Allocator, arr: *std.ArrayList(Obj
     }
 }
 
-pub fn initStatic(allocator: *std.mem.Allocator, class_file: ClassFile) !Object {
+pub fn initStatic(allocator: std.mem.Allocator, class_file: *const ClassFile) !Object {
     var arr = std.ArrayList(ObjectFieldInfo).init(allocator);
     try genStaticFieldInfo(allocator, &arr, class_file);
-    return init(allocator, class_file, arr.toOwnedSlice());
+    return init(allocator, class_file, try arr.toOwnedSlice());
 }
 
-pub fn init(allocator: *std.mem.Allocator, class_file: ClassFile, field_info: []ObjectFieldInfo) !Object {
+pub fn init(allocator: std.mem.Allocator, class_file: *const ClassFile, field_info: []ObjectFieldInfo) !Object {
     var fields_size: usize = 0;
 
     for (field_info) |field| {
@@ -112,8 +114,8 @@ pub fn init(allocator: *std.mem.Allocator, class_file: ClassFile, field_info: []
 
 /// Caller owns memory; `self.allocator.free(class_name)`.
 pub fn getClassName(self: Object) ![]const u8 {
-    var class_name_slashes = self.class_file.this_class.getName(self.class_file.constant_pool);
-    return try utils.classToDots(self.allocator, class_name_slashes);
+    var class_name_slashes = self.class_file.constant_pool.get(self.class_file.this_class).class.getName().bytes;
+    return class_name_slashes;
 }
 
 pub fn deinit(self: *Object) void {
@@ -139,7 +141,7 @@ pub fn setField(self: *Object, name: []const u8, value: primitives.PrimitiveValu
 
     var x = self.field_info[i].kind;
     inline for (std.meta.fields(primitives.PrimitiveValueKind)) |f| {
-        if (@enumToInt(primitives.PrimitiveValueKind.@"void") == f.value) continue;
+        if (@enumToInt(primitives.PrimitiveValueKind.void) == f.value) continue;
         if (@enumToInt(x) == f.value) {
             std.mem.copy(u8, self.field_data_pool[offset .. offset + x.sizeOf()], &std.mem.toBytes(@field(value, f.name)));
             return;
@@ -160,7 +162,7 @@ pub fn getField(self: *Object, name: []const u8) ?primitives.PrimitiveValue {
 
     var x = self.field_info[i].kind;
     inline for (std.meta.fields(primitives.PrimitiveValueKind)) |f| {
-        if (@enumToInt(primitives.PrimitiveValueKind.@"void") == f.value) continue;
+        if (@enumToInt(primitives.PrimitiveValueKind.void) == f.value) continue;
         if (@enumToInt(x) == f.value) {
             const k = @intToEnum(primitives.PrimitiveValueKind, f.value);
             return @unionInit(primitives.PrimitiveValue, f.name, std.mem.bytesToValue(k.getType(), self.field_data_pool[offset .. offset + x.sizeOf()][0..comptime k.sizeOf()]));

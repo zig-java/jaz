@@ -9,32 +9,34 @@ const StackFrame = @import("StackFrame.zig");
 const primitives = @import("primitives.zig");
 const ClassResolver = @import("ClassResolver.zig");
 
-const opcodes = @import("../types/opcodes.zig");
-const methods = @import("../types/methods.zig");
-const ClassFile = @import("../types/ClassFile.zig");
-const attributes = @import("../types/attributes.zig");
-const descriptors = @import("../types/descriptors.zig");
-const constant_pool = @import("../types/constant_pool.zig");
+const cf = @import("cf");
+
+const opcodes = cf.bytecode.ops;
+const MethodInfo = cf.MethodInfo;
+const ClassFile = cf.ClassFile;
+const attributes = cf.attributes;
+const descriptors = cf.descriptors;
+const ConstantPool = cf.ConstantPool;
 
 const Interpreter = @This();
 
-allocator: *std.mem.Allocator,
+allocator: std.mem.Allocator,
 heap: Heap,
 static_pool: StaticPool,
 class_resolver: *ClassResolver,
 
-pub fn init(allocator: *std.mem.Allocator, class_resolver: *ClassResolver) Interpreter {
+pub fn init(allocator: std.mem.Allocator, class_resolver: *ClassResolver) Interpreter {
     return .{ .allocator = allocator, .heap = Heap.init(allocator), .static_pool = StaticPool.init(allocator), .class_resolver = class_resolver };
 }
 
 pub fn call(self: *Interpreter, path: []const u8, args: anytype) !primitives.PrimitiveValue {
-    var class_file = try self.class_resolver.resolve(path[0..std.mem.lastIndexOf(u8, path, ".").?]);
-    var method_name = path[std.mem.lastIndexOf(u8, path, ".").? + 1 ..];
+    var class_file = (try self.class_resolver.resolve(path[0..std.mem.lastIndexOf(u8, path, "/").?])).?;
+    var method_name = path[std.mem.lastIndexOf(u8, path, "/").? + 1 ..];
     var margs: [std.meta.fields(@TypeOf(args)).len]primitives.PrimitiveValue = undefined;
 
-    var method_info: ?methods.MethodInfo = null;
-    for (class_file.methods) |*m| {
-        if (!std.mem.eql(u8, m.getName(class_file), method_name)) continue;
+    var method_info: ?MethodInfo = null;
+    for (class_file.methods.items) |*m| {
+        if (!std.mem.eql(u8, m.getName().bytes, method_name)) continue;
 
         method_info = m.*;
     }
@@ -51,7 +53,7 @@ fn useStaticClass(self: *Interpreter, class_name: []const u8) !void {
         var clname = try std.mem.concat(self.allocator, u8, &.{ class_name, ".<clinit>" });
         defer self.allocator.free(clname);
 
-        _ = try self.static_pool.addClass(class_name, try self.class_resolver.resolve(class_name));
+        _ = try self.static_pool.addClass(class_name, (try self.class_resolver.resolve(class_name)).?);
 
         _ = self.call(clname, .{}) catch |err| switch (err) {
             error.ClassNotFound => @panic("Big problem!!!"),
@@ -62,7 +64,7 @@ fn useStaticClass(self: *Interpreter, class_name: []const u8) !void {
 }
 
 pub fn newObject(self: *Interpreter, class_name: []const u8) !primitives.reference {
-    return try self.heap.newObject(try self.class_resolver.resolve(class_name), self.class_resolver);
+    return try self.heap.newObject((try self.class_resolver.resolve(class_name)).?, self.class_resolver);
 }
 
 pub fn new(self: *Interpreter, class_name: []const u8, args: anytype) !primitives.reference {
@@ -74,10 +76,10 @@ pub fn new(self: *Interpreter, class_name: []const u8, args: anytype) !primitive
     return object;
 }
 
-pub fn findMethod(self: *Interpreter, class_file: ClassFile, method_name: []const u8, args: []primitives.PrimitiveValue) !?*const methods.MethodInfo {
-    method_search: for (class_file.methods) |*method| {
-        if (!std.mem.eql(u8, method.getName(class_file), method_name)) continue;
-        var method_descriptor_str = method.getDescriptor(class_file);
+pub fn findMethod(self: *Interpreter, class_file: *const ClassFile, method_name: []const u8, args: []primitives.PrimitiveValue) !?*const MethodInfo {
+    method_search: for (class_file.methods.items) |*method| {
+        if (!std.mem.eql(u8, method.getName().bytes, method_name)) continue;
+        var method_descriptor_str = method.getDescriptor().bytes;
         var method_descriptor = try descriptors.parseString(self.allocator, method_descriptor_str);
 
         if (method_descriptor.method.parameters.len != args.len - if (method.access_flags.static) @as(usize, 0) else @as(usize, 1)) continue;
@@ -124,7 +126,7 @@ pub fn findMethod(self: *Interpreter, class_file: ClassFile, method_name: []cons
     return null;
 }
 
-fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8, args: []primitives.PrimitiveValue) anyerror!primitives.PrimitiveValue {
+fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []const u8, args: []primitives.PrimitiveValue) anyerror!primitives.PrimitiveValue {
     var descriptor_buf = std.ArrayList(u8).init(self.allocator);
     defer descriptor_buf.deinit();
 
@@ -132,27 +134,28 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
     descriptor_buf.shrinkRetainingCapacity(0);
     try utils.formatMethod(self.allocator, class_file, method, descriptor_buf.writer());
-    std.log.info("method: {s} {s}", .{ class_file.this_class.getName(class_file.constant_pool), descriptor_buf.items });
+    std.log.info("{d} {d}", .{ @ptrToInt(class_file.constant_pool), @ptrToInt(class_file.constant_pool.get(class_file.this_class).class.constant_pool) });
+    std.log.info("method: {s} {s}", .{ class_file.constant_pool.get(class_file.this_class).class.getName().bytes, descriptor_buf.items });
 
     // TODO: See descriptors.zig
-    for (method.attributes) |*att| {
-        var data = try att.readData(self.allocator, class_file);
-        std.log.info((" " ** 4) ++ "method attribute: '{s}'", .{att.getName(class_file)});
+    for (method.attributes.items) |*att| {
+        // var data = try att.readData(self.allocator, class_file);
+        std.log.info((" " ** 4) ++ "method attribute: '{s}'", .{@tagName(att.*)});
 
-        switch (data) {
+        switch (att.*) {
             .code => |code_attribute| {
                 var stack_frame = StackFrame.init(self.allocator, class_file);
                 defer stack_frame.deinit();
 
                 try stack_frame.local_variables.appendSlice(args);
 
-                var fbs = std.io.fixedBufferStream(code_attribute.code);
+                var fbs = std.io.fixedBufferStream(code_attribute.code.items);
                 var fbs_reader = fbs.reader();
 
-                var opcode = try opcodes.Operation.parse(self.allocator, fbs_reader);
+                var opcode = try opcodes.Operation.decode(self.allocator, fbs_reader);
 
                 while (true) {
-                    std.log.info((" " ** 8) ++ "{s}", .{opcode});
+                    std.log.info((" " ** 8) ++ "{any}", .{opcode});
 
                     // TODO: Rearrange everything according to https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html
                     switch (opcode) {
@@ -195,54 +198,54 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                         .sipush => |value| try stack_frame.operand_stack.push(.{ .int = value }),
 
                         .ldc => |index| {
-                            switch (stack_frame.class_file.getConstantPoolEntry(index)) {
-                                .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f) }),
-                                .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f) }),
+                            switch (stack_frame.class_file.constant_pool.get(index)) {
+                                .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f.bytes) }),
+                                .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f.bytes) }),
                                 .string => |s| {
-                                    var utf8 = class_file.getConstantPoolEntry(s.string_index).utf8;
+                                    var utf8 = class_file.constant_pool.get(s.string_index).utf8;
                                     var ref = try self.heap.newArray(.byte, @intCast(primitives.int, utf8.bytes.len));
                                     var arr = self.heap.getArray(ref);
 
-                                    std.mem.copy(i8, arr.byte.slice, @bitCast([]i8, utf8.bytes));
+                                    std.mem.copy(i8, arr.byte.slice, @ptrCast([*]const i8, utf8.bytes.ptr)[0..utf8.bytes.len]);
 
                                     try stack_frame.operand_stack.push(.{ .reference = try self.new("java.lang.String", .{ref}) });
                                 },
                                 .class => |class| {
-                                    var class_name_slashes = class.getName(class_file.constant_pool);
-                                    var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                                    var class_name_slashes = class.getName().bytes;
+                                    var class_name = class_name_slashes;
                                     defer self.allocator.free(class_name);
 
-                                    try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name), self.class_resolver) });
+                                    try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject((try self.class_resolver.resolve(class_name)).?, self.class_resolver) });
                                 },
                                 else => {
-                                    std.log.info("{s}", .{stack_frame.class_file.getConstantPoolEntry(index)});
+                                    std.log.info("{any}", .{stack_frame.class_file.constant_pool.get(index)});
                                     unreachable;
                                 },
                             }
                         },
                         .ldc_w => |index| {
-                            switch (stack_frame.class_file.getConstantPoolEntry(index)) {
-                                .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f) }),
-                                .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f) }),
+                            switch (stack_frame.class_file.constant_pool.get(index)) {
+                                .integer => |f| try stack_frame.operand_stack.push(.{ .int = @bitCast(primitives.int, f.bytes) }),
+                                .float => |f| try stack_frame.operand_stack.push(.{ .float = @bitCast(primitives.float, f.bytes) }),
                                 .string => |s| {
-                                    var utf8 = class_file.getConstantPoolEntry(s.string_index).utf8;
+                                    var utf8 = class_file.constant_pool.get(s.string_index).utf8;
                                     var ref = try self.heap.newArray(.byte, @intCast(primitives.int, utf8.bytes.len));
                                     var arr = self.heap.getArray(ref);
 
-                                    std.mem.copy(i8, arr.byte.slice, @bitCast([]i8, utf8.bytes));
+                                    std.mem.copy(i8, arr.byte.slice, @ptrCast([*]const i8, utf8.bytes.ptr)[0..utf8.bytes.len]);
 
                                     try stack_frame.operand_stack.push(.{ .reference = try self.new("java.lang.String", .{ref}) });
                                 },
                                 else => {
-                                    std.log.info("{s}", .{stack_frame.class_file.getConstantPoolEntry(index)});
+                                    std.log.info("{any}", .{stack_frame.class_file.constant_pool.get(index)});
                                     unreachable;
                                 },
                             }
                         },
                         .ldc2_w => |index| {
-                            switch (stack_frame.class_file.getConstantPoolEntry(index)) {
-                                .double => |d| try stack_frame.operand_stack.push(.{ .double = @bitCast(primitives.double, d) }),
-                                .long => |l| try stack_frame.operand_stack.push(.{ .long = @bitCast(primitives.long, l) }),
+                            switch (stack_frame.class_file.constant_pool.get(index)) {
+                                .double => |d| try stack_frame.operand_stack.push(.{ .double = @bitCast(primitives.double, d.bytes) }),
+                                .long => |l| try stack_frame.operand_stack.push(.{ .long = @bitCast(primitives.long, l.bytes) }),
                                 else => unreachable,
                             }
                         },
@@ -396,15 +399,15 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                                     try stack_frame.operand_stack.push(.{ .reference = try self.heap.newArray(std.meta.stringToEnum(array.ArrayKind, field.name).?, stack_frame.operand_stack.pop().int) });
                             }
                         },
-                        .anewarray => |atype| {
+                        .anewarray => {
                             try stack_frame.operand_stack.push(.{ .reference = try self.heap.newArray(.reference, stack_frame.operand_stack.pop().int) });
                         },
                         .new => |index| {
-                            var class_name_slashes = class_file.getConstantPoolEntry(index).class.getName(class_file.constant_pool);
-                            var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                            var class_name_slashes = class_file.constant_pool.get(index).class.getName().bytes;
+                            var class_name = class_name_slashes;
                             defer self.allocator.free(class_name);
 
-                            try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject(try self.class_resolver.resolve(class_name), self.class_resolver) });
+                            try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject((try self.class_resolver.resolve(class_name)).?, self.class_resolver) });
                         },
 
                         .arraylength => try stack_frame.operand_stack.push(.{ .int = self.heap.getArray(stack_frame.operand_stack.pop().reference).length() }),
@@ -422,18 +425,18 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
                         // Invoke thangs
                         .invokestatic, .invokespecial, .invokevirtual => |index| {
-                            var methodref = stack_frame.class_file.getConstantPoolEntry(index).methodref;
-                            var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
-                            var class_info = methodref.getClassInfo(class_file.constant_pool);
+                            var methodref = stack_frame.class_file.constant_pool.get(index).methodref;
+                            var nti = methodref.getNameAndTypeInfo();
+                            var class_info = methodref.getClassInfo();
 
-                            var name = nti.getName(class_file.constant_pool);
-                            var class_name_slashes = class_info.getName(class_file.constant_pool);
-                            var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                            var name = nti.getName().bytes;
+                            var class_name_slashes = class_info.getName().bytes;
+                            var class_name = class_name_slashes;
                             defer self.allocator.free(class_name);
 
                             try self.useStaticClass(class_name);
 
-                            var descriptor_str = nti.getDescriptor(class_file.constant_pool);
+                            var descriptor_str = nti.getDescriptor().bytes;
                             var method_desc = try descriptors.parseString(self.allocator, descriptor_str);
 
                             var params = try self.allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len + if (opcode != .invokestatic) @as(usize, 1) else @as(usize, 0));
@@ -461,25 +464,25 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             if (opcode != .invokestatic) params[params.len - 1] = .{ .reference = stack_frame.operand_stack.pop().reference };
                             std.mem.reverse(primitives.PrimitiveValue, params);
 
-                            var return_val = try self.interpret(try self.class_resolver.resolve(class_name), name, params);
-                            if (return_val != .@"void")
+                            var return_val = try self.interpret((try self.class_resolver.resolve(class_name)).?, name, params);
+                            if (return_val != .void)
                                 try stack_frame.operand_stack.push(return_val);
 
                             std.log.info("return to method: {s}", .{descriptor_buf.items});
                         },
                         .invokeinterface => |iiparams| {
-                            var methodref = stack_frame.class_file.getConstantPoolEntry(opcodes.getIndex(iiparams)).interface_methodref;
-                            var nti = methodref.getNameAndTypeInfo(class_file.constant_pool);
-                            var class_info = methodref.getClassInfo(class_file.constant_pool);
+                            var methodref = stack_frame.class_file.constant_pool.get(iiparams.index).interface_methodref;
+                            var nti = methodref.getNameAndTypeInfo();
+                            var class_info = methodref.getClassInfo();
 
-                            var name = nti.getName(class_file.constant_pool);
-                            var class_name_slashes = class_info.getName(class_file.constant_pool);
-                            var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                            var name = nti.getName().bytes;
+                            var class_name_slashes = class_info.getName().bytes;
+                            var class_name = class_name_slashes;
                             defer self.allocator.free(class_name);
 
                             try self.useStaticClass(class_name);
 
-                            var descriptor_str = nti.getDescriptor(class_file.constant_pool);
+                            var descriptor_str = nti.getDescriptor().bytes;
                             var method_desc = try descriptors.parseString(self.allocator, descriptor_str);
 
                             var params = try self.allocator.alloc(primitives.PrimitiveValue, method_desc.method.parameters.len + 1);
@@ -508,7 +511,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             std.mem.reverse(primitives.PrimitiveValue, params);
 
                             var return_val = try self.interpret(self.heap.getObject(params[0].reference).class_file, name, params);
-                            if (return_val != .@"void")
+                            if (return_val != .void)
                                 try stack_frame.operand_stack.push(return_val);
 
                             std.log.info("return to method: {s}", .{descriptor_buf.items});
@@ -516,7 +519,7 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
                         // Return
                         .ireturn, .freturn, .dreturn, .areturn => return stack_frame.operand_stack.pop(),
-                        .@"return" => return .@"void",
+                        .@"return" => return .void,
 
                         // Comparisons
                         // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Comparisons" for order
@@ -624,12 +627,12 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                         // References
                         // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "References" for order
                         .getstatic => |index| {
-                            var fieldref = stack_frame.class_file.getConstantPoolEntry(index).fieldref;
+                            var fieldref = stack_frame.class_file.constant_pool.get(index).fieldref;
 
-                            var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
-                            var name = nti.getName(class_file.constant_pool);
-                            var class_name_slashes = fieldref.getClassInfo(class_file.constant_pool).getName(class_file.constant_pool);
-                            var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                            var nti = fieldref.getNameAndTypeInfo();
+                            var name = nti.getName().bytes;
+                            var class_name_slashes = fieldref.getClassInfo().getName().bytes;
+                            var class_name = class_name_slashes;
                             defer self.allocator.free(class_name);
 
                             try self.useStaticClass(class_name);
@@ -638,12 +641,12 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             try stack_frame.operand_stack.push(class.getField(name).?);
                         },
                         .putstatic => |index| {
-                            var fieldref = stack_frame.class_file.getConstantPoolEntry(index).fieldref;
+                            var fieldref = stack_frame.class_file.constant_pool.get(index).fieldref;
 
-                            var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
-                            var name = nti.getName(class_file.constant_pool);
-                            var class_name_slashes = fieldref.getClassInfo(class_file.constant_pool).getName(class_file.constant_pool);
-                            var class_name = try utils.classToDots(self.allocator, class_name_slashes);
+                            var nti = fieldref.getNameAndTypeInfo();
+                            var name = nti.getName().bytes;
+                            var class_name_slashes = fieldref.getClassInfo().getName().bytes;
+                            var class_name = class_name_slashes;
                             defer self.allocator.free(class_name);
 
                             try self.useStaticClass(class_name);
@@ -653,20 +656,20 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
                             try (self.static_pool.getClass(class_name).?).setField(name, value);
                         },
                         .getfield => |index| {
-                            var fieldref = stack_frame.class_file.getConstantPoolEntry(index).fieldref;
+                            var fieldref = stack_frame.class_file.constant_pool.get(index).fieldref;
 
-                            var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
-                            var name = nti.getName(class_file.constant_pool);
+                            var nti = fieldref.getNameAndTypeInfo();
+                            var name = nti.getName().bytes;
 
                             var objectref = stack_frame.operand_stack.pop().reference;
 
                             try stack_frame.operand_stack.push(self.heap.getObject(objectref).getField(name).?);
                         },
                         .putfield => |index| {
-                            var fieldref = stack_frame.class_file.getConstantPoolEntry(index).fieldref;
+                            var fieldref = stack_frame.class_file.constant_pool.get(index).fieldref;
 
-                            var nti = fieldref.getNameAndTypeInfo(class_file.constant_pool);
-                            var name = nti.getName(class_file.constant_pool);
+                            var nti = fieldref.getNameAndTypeInfo();
+                            var name = nti.getName().bytes;
 
                             var value = stack_frame.operand_stack.pop();
                             var objectref = stack_frame.operand_stack.pop().reference;
@@ -701,10 +704,10 @@ fn interpret(self: *Interpreter, class_file: ClassFile, method_name: []const u8,
 
                         else => unreachable,
                     }
-                    opcode = opcodes.Operation.parse(self.allocator, fbs_reader) catch break;
+                    opcode = opcodes.Operation.decode(self.allocator, fbs_reader) catch break;
                 }
             },
-            .unknown => {},
+            else => {},
         }
     }
 

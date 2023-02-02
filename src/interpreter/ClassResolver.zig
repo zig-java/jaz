@@ -1,82 +1,79 @@
 //! Resolves classes 😎
 
 const std = @import("std");
-const ClassFile = @import("../types/ClassFile.zig");
+const cf = @import("cf");
+const ClassFile = cf.ClassFile;
 
 const ClassResolver = @This();
 
-allocator: *std.mem.Allocator,
-classpath_dirs: []std.fs.Dir,
-hash_map: std.StringHashMap(ClassFile),
+allocator: std.mem.Allocator,
+/// Transforms "a/b/c" -> "/java/path/a/b/c.class"
+absolute_path_map: std.StringHashMapUnmanaged([]const u8) = .{},
+/// Transforms "a/b/c" -> ClassFile(...)
+class_file_map: std.StringHashMapUnmanaged(*ClassFile) = .{},
 
-pub fn init(allocator: *std.mem.Allocator, classpath_dirs: []std.fs.Dir) !ClassResolver {
-    return ClassResolver{ .allocator = allocator, .classpath_dirs = classpath_dirs, .hash_map = std.StringHashMap(ClassFile).init(allocator) };
+pub fn init(allocator: std.mem.Allocator, classpath_dirs: [][]const u8) !ClassResolver {
+    var class_resolver = ClassResolver{ .allocator = allocator };
+
+    for (classpath_dirs) |path| {
+        try populateAbsolutePathMap(&class_resolver, path, "");
+    }
+
+    return class_resolver;
 }
 
-/// Not recommended!
-pub fn initWithPaths(allocator: *std.mem.Allocator, classpath: [][]const u8) !ClassResolver {
-    var classpath_dirs = try allocator.alloc(std.fs.Dir, classpath.len);
-    for (classpath) |cp, i| {
-        classpath_dirs[i] = try std.fs.openDirAbsolute(cp, .{ .access_sub_paths = true, .iterate = true });
-    }
+fn populateAbsolutePathMap(
+    resolver: *ClassResolver,
+    path: []const u8,
+    slashes: []const u8,
+) !void {
+    var iterable = try std.fs.openIterableDirAbsolute(path, .{});
+    defer iterable.close();
 
-    return ClassResolver{ .allocator = allocator, .classpath_dirs = classpath_dirs, .hash_map = std.StringHashMap(ClassFile).init(allocator) };
+    var iterator = iterable.iterate();
+
+    while (try iterator.next()) |it| {
+        const sub_path = try std.fs.path.join(resolver.allocator, &.{ path, it.name });
+        const sub_slashes = if (slashes.len == 0) it.name else try std.mem.join(resolver.allocator, "/", &.{
+            slashes,
+            if (it.kind == .File and std.mem.endsWith(u8, it.name, ".class"))
+                it.name[0 .. it.name.len - 6]
+            else
+                it.name[0..it.name.len],
+        });
+
+        switch (it.kind) {
+            .Directory => {
+                try resolver.populateAbsolutePathMap(sub_path, sub_slashes);
+            },
+            .File => {
+                try resolver.absolute_path_map.put(resolver.allocator, sub_slashes, sub_path);
+            },
+            else => {
+                resolver.allocator.free(sub_slashes);
+                std.log.warn("Unknown iterator entry: {any}", .{it});
+            },
+        }
+    }
 }
 
-pub fn resolve(self: *ClassResolver, path_: []const u8) !ClassFile {
-    if (self.hash_map.get(path_)) |cf| return cf;
+/// Resolve Class from "java.abc.def" notations
+pub fn resolve(resolver: *ClassResolver, slashes: []const u8) !?*ClassFile {
+    return resolver.class_file_map.get(slashes) orelse {
+        var file = try std.fs.openFileAbsolute(resolver.absolute_path_map.get(slashes) orelse return null, .{});
+        defer file.close();
 
-    var path = try self.allocator.dupe(u8, path_);
-    errdefer self.allocator.free(path);
+        var class_file = try resolver.allocator.create(ClassFile);
+        class_file.* = try ClassFile.decode(resolver.allocator, file.reader());
 
-    var sub = std.ArrayList(std.fs.Dir).init(self.allocator);
+        try resolver.class_file_map.put(
+            resolver.allocator,
+            try resolver.allocator.dupe(u8, slashes),
+            class_file,
+        );
 
-    var parts = std.mem.split(path, ".");
-    var i: usize = 0;
-    var m = std.mem.count(u8, path, ".");
-
-    while (parts.next()) |part| {
-        for (self.classpath_dirs) |d, j| {
-            var subdir = d.openDir(part, .{ .access_sub_paths = true, .iterate = true }) catch continue;
-            try sub.append(subdir);
-        }
-
-        break;
-    }
-
-    while (parts.next()) |part| : (i += 1) {
-        for (sub.items) |*d, j| {
-            if (i + 1 == m) {
-                // Indicates that this is the last part of the Java path thang; openFile, not dir
-
-                var full_name = try std.mem.concat(self.allocator, u8, &.{ part, ".class" });
-                defer self.allocator.free(full_name);
-
-                var testClass = try d.openFile(full_name, .{});
-                defer testClass.close();
-
-                var testReader = testClass.reader();
-                var class_file = try ClassFile.parse(self.allocator, testReader);
-                try self.hash_map.put(path, class_file);
-
-                return class_file;
-            } else {
-                // std.log.info("{s}", .{part});
-                var subdir = d.openDir(part, .{ .access_sub_paths = true, .iterate = true }) catch {
-                    d.close();
-                    _ = sub.orderedRemove(j);
-                    continue;
-                };
-
-                _ = sub.orderedRemove(j);
-                try sub.append(subdir);
-            }
-        }
-    }
-
-    for (sub.items) |*d| d.close();
-
-    return error.ClassNotFound;
+        return class_file;
+    };
 }
 
 pub fn deinit(self: ClassResolver) void {

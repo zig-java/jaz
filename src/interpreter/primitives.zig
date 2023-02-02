@@ -15,7 +15,7 @@ pub const reference = usize;
 pub const returnAddress = usize;
 
 pub const PrimitiveValueKind = enum(u4) {
-    @"void",
+    void,
 
     byte,
     short,
@@ -33,7 +33,7 @@ pub const PrimitiveValueKind = enum(u4) {
         comptime var i: usize = 0;
         inline for (std.meta.fields(PrimitiveValue)) |f| {
             if (@enumToInt(self) == i) {
-                return @sizeOf(f.field_type);
+                return @sizeOf(f.type);
             }
             i += 1;
         }
@@ -41,11 +41,11 @@ pub const PrimitiveValueKind = enum(u4) {
         unreachable;
     }
 
-    pub fn getType(self: PrimitiveValueKind) type {
+    pub fn getType(comptime self: PrimitiveValueKind) type {
         comptime var i: usize = 0;
         inline for (std.meta.fields(PrimitiveValue)) |f| {
             if (@enumToInt(self) == i) {
-                return f.field_type;
+                return f.type;
             }
             i += 1;
         }
@@ -55,7 +55,7 @@ pub const PrimitiveValueKind = enum(u4) {
 };
 
 pub const PrimitiveValue = union(PrimitiveValueKind) {
-    @"void": void_value,
+    void: void_value,
 
     byte: byte,
     short: short,
@@ -71,7 +71,7 @@ pub const PrimitiveValue = union(PrimitiveValueKind) {
 
     pub fn fromNative(value: anytype) PrimitiveValue {
         return switch (@TypeOf(value)) {
-            void => .@"void",
+            void => .void,
 
             byte => .{ .byte = value },
             short => .{ .short = value },

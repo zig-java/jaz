@@ -1,10 +1,11 @@
 const std = @import("std");
 
-const methods = @import("../types/methods.zig");
-const ClassFile = @import("../types/ClassFile.zig");
-const descriptors = @import("../types/descriptors.zig");
+const cf = @import("cf");
+const MethodInfo = cf.MethodInfo;
+const ClassFile = cf.ClassFile;
+const descriptors = cf.descriptors;
 
-pub fn formatMethod(allocator: *std.mem.Allocator, class_file: ClassFile, method: *const methods.MethodInfo, writer: anytype) !void {
+pub fn formatMethod(allocator: std.mem.Allocator, _: *const ClassFile, method: *const MethodInfo, writer: anytype) !void {
     if (method.access_flags.public) _ = try writer.writeAll("public ");
     if (method.access_flags.private) _ = try writer.writeAll("private ");
     if (method.access_flags.protected) _ = try writer.writeAll("protected ");
@@ -13,7 +14,7 @@ pub fn formatMethod(allocator: *std.mem.Allocator, class_file: ClassFile, method
     if (method.access_flags.abstract) _ = try writer.writeAll("abstract ");
     if (method.access_flags.final) _ = try writer.writeAll("final ");
 
-    var desc = method.getDescriptor(class_file);
+    var desc = method.getDescriptor().bytes;
     var fbs = std.io.fixedBufferStream(desc);
 
     // Write human readable return descriptor
@@ -22,18 +23,11 @@ pub fn formatMethod(allocator: *std.mem.Allocator, class_file: ClassFile, method
 
     // Write human readable parameters descriptor
     try writer.writeByte(' ');
-    _ = try writer.writeAll(method.getName(class_file));
+    _ = try writer.writeAll(method.getName().bytes);
     try writer.writeByte('(');
     for (descriptor.method.parameters) |param, i| {
         try param.humanStringify(writer);
         if (i + 1 != descriptor.method.parameters.len) _ = try writer.writeAll(", ");
     }
     try writer.writeByte(')');
-}
-
-pub fn classToDots(allocator: *std.mem.Allocator, class: []const u8) ![]u8 {
-    var t = try allocator.alloc(u8, class.len);
-    std.mem.copy(u8, t, class);
-    for (t) |*v| v.* = if (v.* == '/') '.' else v.*;
-    return t;
 }

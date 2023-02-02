@@ -1,6 +1,5 @@
 const std = @import("std");
 const primitives = @import("primitives.zig");
-const ClassFile = @import("../typs/ClassFile.zig");
 
 pub const ArrayKind = enum { byte, short, int, long, char, float, double, reference };
 pub const Array = union(ArrayKind) {
@@ -15,7 +14,7 @@ pub const Array = union(ArrayKind) {
 
     reference: ArrayOf(primitives.reference),
 
-    pub fn init(allocator: *std.mem.Allocator, kind: ArrayKind, count: primitives.int) !Array {
+    pub fn init(allocator: std.mem.Allocator, kind: ArrayKind, count: primitives.int) !Array {
         inline for (std.meta.fields(ArrayKind)) |field| {
             if (@enumToInt(kind) == field.value) {
                 return @unionInit(Array, field.name, try ArrayOf(@field(primitives, field.name)).init(allocator, count));
@@ -63,7 +62,7 @@ pub fn ArrayOf(comptime T: type) type {
 
         slice: []T,
 
-        pub fn init(allocator: *std.mem.Allocator, count: primitives.int) !Self {
+        pub fn init(allocator: std.mem.Allocator, count: primitives.int) !Self {
             if (count < 0) return error.NegativeArraySize;
 
             var slice = try allocator.alloc(T, @intCast(usize, try std.math.absInt(count)));
@@ -84,7 +83,7 @@ pub fn ArrayOf(comptime T: type) type {
             return @intCast(primitives.int, self.slice.len);
         }
 
-        pub fn deinit(self: Self, allocator: *std.mem.Allocator) void {
+        pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
             allocator.free(self.slice);
         }
     };
