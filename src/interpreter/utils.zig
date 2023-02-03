@@ -10,6 +10,7 @@ pub fn formatMethod(allocator: std.mem.Allocator, _: *const ClassFile, method: *
     if (method.access_flags.private) _ = try writer.writeAll("private ");
     if (method.access_flags.protected) _ = try writer.writeAll("protected ");
 
+    if (method.access_flags.native) _ = try writer.writeAll("native ");
     if (method.access_flags.static) _ = try writer.writeAll("static ");
     if (method.access_flags.abstract) _ = try writer.writeAll("abstract ");
     if (method.access_flags.final) _ = try writer.writeAll("final ");

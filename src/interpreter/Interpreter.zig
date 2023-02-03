@@ -30,6 +30,7 @@ pub fn init(allocator: std.mem.Allocator, class_resolver: *ClassResolver) Interp
 }
 
 pub fn call(self: *Interpreter, path: []const u8, args: anytype) !primitives.PrimitiveValue {
+    std.log.info("{s}", .{path});
     var class_file = (try self.class_resolver.resolve(path[0..std.mem.lastIndexOf(u8, path, "/").?])).?;
     var method_name = path[std.mem.lastIndexOf(u8, path, "/").? + 1 ..];
     var margs: [std.meta.fields(@TypeOf(args)).len]primitives.PrimitiveValue = undefined;
@@ -50,9 +51,10 @@ pub fn call(self: *Interpreter, path: []const u8, args: anytype) !primitives.Pri
 
 fn useStaticClass(self: *Interpreter, class_name: []const u8) !void {
     if (!self.static_pool.hasClass(class_name)) {
-        var clname = try std.mem.concat(self.allocator, u8, &.{ class_name, ".<clinit>" });
+        var clname = try std.mem.concat(self.allocator, u8, &.{ class_name, "/<clinit>" });
         defer self.allocator.free(clname);
 
+        std.log.info("STATIC CLASS '{s}' {d}", .{ clname, clname[0] });
         _ = try self.static_pool.addClass(class_name, (try self.class_resolver.resolve(class_name)).?);
 
         _ = self.call(clname, .{}) catch |err| switch (err) {
@@ -96,7 +98,7 @@ pub fn findMethod(self: *Interpreter, class_file: *const ClassFile, method_name:
                     switch (self.heap.get(args[tindex + toffset].reference).*) {
                         .object => |o2| {
                             var cn = try o2.getClassName();
-                            defer self.allocator.free(cn);
+                            // defer self.allocator.free(cn);
                             if (!std.mem.eql(u8, o, cn)) {
                                 continue :method_search;
                             }
@@ -126,7 +128,12 @@ pub fn findMethod(self: *Interpreter, class_file: *const ClassFile, method_name:
     return null;
 }
 
-fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []const u8, args: []primitives.PrimitiveValue) anyerror!primitives.PrimitiveValue {
+fn interpret(
+    self: *Interpreter,
+    class_file: *const ClassFile,
+    method_name: []const u8,
+    args: []primitives.PrimitiveValue,
+) anyerror!primitives.PrimitiveValue {
     var descriptor_buf = std.ArrayList(u8).init(self.allocator);
     defer descriptor_buf.deinit();
 
@@ -135,7 +142,13 @@ fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []co
     descriptor_buf.shrinkRetainingCapacity(0);
     try utils.formatMethod(self.allocator, class_file, method, descriptor_buf.writer());
     std.log.info("{d} {d}", .{ @ptrToInt(class_file.constant_pool), @ptrToInt(class_file.constant_pool.get(class_file.this_class).class.constant_pool) });
-    std.log.info("method: {s} {s}", .{ class_file.constant_pool.get(class_file.this_class).class.getName().bytes, descriptor_buf.items });
+    std.log.info("method: {s} {s} ({d} attrs)", .{ class_file.constant_pool.get(class_file.this_class).class.getName().bytes, descriptor_buf.items, method.attributes.items.len });
+
+    // TODO: More specific
+    if (std.mem.eql(u8, method.getName().bytes, "registerNatives")) {
+        std.log.info("CALLED REGISTER NATIVES", .{});
+        return .void;
+    }
 
     // TODO: See descriptors.zig
     for (method.attributes.items) |*att| {
@@ -201,7 +214,7 @@ fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []co
                                 .class => |class| {
                                     var class_name_slashes = class.getName().bytes;
                                     var class_name = class_name_slashes;
-                                    defer self.allocator.free(class_name);
+                                    // defer self.allocator.free(class_name);
 
                                     try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject((try self.class_resolver.resolve(class_name)).?, self.class_resolver) });
                                 },
@@ -388,7 +401,7 @@ fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []co
                         .new => |index| {
                             var class_name_slashes = class_file.constant_pool.get(index).class.getName().bytes;
                             var class_name = class_name_slashes;
-                            defer self.allocator.free(class_name);
+                            // defer self.allocator.free(class_name);
 
                             try stack_frame.operand_stack.push(.{ .reference = try self.heap.newObject((try self.class_resolver.resolve(class_name)).?, self.class_resolver) });
                         },
@@ -415,7 +428,7 @@ fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []co
                             var name = nti.getName().bytes;
                             var class_name_slashes = class_info.getName().bytes;
                             var class_name = class_name_slashes;
-                            defer self.allocator.free(class_name);
+                            // defer self.allocator.free(class_name);
 
                             try self.useStaticClass(class_name);
 
@@ -461,7 +474,7 @@ fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []co
                             var name = nti.getName().bytes;
                             var class_name_slashes = class_info.getName().bytes;
                             var class_name = class_name_slashes;
-                            defer self.allocator.free(class_name);
+                            // defer self.allocator.free(class_name);
 
                             try self.useStaticClass(class_name);
 
@@ -616,7 +629,7 @@ fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []co
                             var name = nti.getName().bytes;
                             var class_name_slashes = fieldref.getClassInfo().getName().bytes;
                             var class_name = class_name_slashes;
-                            defer self.allocator.free(class_name);
+                            // defer self.allocator.free(class_name);
 
                             try self.useStaticClass(class_name);
 
@@ -630,7 +643,7 @@ fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []co
                             var name = nti.getName().bytes;
                             var class_name_slashes = fieldref.getClassInfo().getName().bytes;
                             var class_name = class_name_slashes;
-                            defer self.allocator.free(class_name);
+                            // defer self.allocator.free(class_name);
 
                             try self.useStaticClass(class_name);
 
@@ -690,7 +703,9 @@ fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []co
                     opcode = opcodes.Operation.decode(self.allocator, fbs_reader) catch break;
                 }
             },
-            else => {},
+            inline else => |_, op| {
+                @panic("UNHANDLED OPERATION: " ++ @tagName(op));
+            },
         }
     }
 
