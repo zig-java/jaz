@@ -12,7 +12,9 @@ public class Benjamin implements IZiguana {
     }
 
     public static int main() {
-        int z = 3000;
+        float bruh1 = 1;
+        double bruh = (double) bruh1;
+        int z = (int) bruh;
         int b = 0;
 
         switch (z) {

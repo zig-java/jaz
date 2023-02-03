@@ -29,6 +29,17 @@ pub const PrimitiveValueKind = enum(u4) {
     reference,
     returnAddress,
 
+    pub fn fromSingleCharRepr(c: u8) PrimitiveValueKind {
+        return switch (c) {
+            'i' => .int,
+            'l' => .long,
+            'f' => .float,
+            'd' => .double,
+            'a' => .reference,
+            else => @panic("Invalid repr."),
+        };
+    }
+
     pub fn sizeOf(self: PrimitiveValueKind) usize {
         comptime var i: usize = 0;
         inline for (std.meta.fields(PrimitiveValue)) |f| {
@@ -94,5 +105,39 @@ pub const PrimitiveValue = union(PrimitiveValueKind) {
 
     pub fn isNull(self: *PrimitiveValue) bool {
         return self.reference == 0;
+    }
+
+    pub fn cast(from: PrimitiveValue, to: PrimitiveValueKind) PrimitiveValue {
+        return switch (from) {
+            .int => |i| switch (to) {
+                .long => .{ .long = @intCast(long, i) },
+                .float => .{ .float = @intToFloat(float, i) },
+                .double => .{ .double = @intToFloat(double, i) },
+
+                .byte => .{ .byte = @intCast(byte, i) },
+                .char => .{ .char = @intCast(char, i) },
+                .short => .{ .short = @intCast(short, i) },
+                else => unreachable,
+            },
+            .long => |l| switch (to) {
+                .int => .{ .int = @intCast(int, l) },
+                .float => .{ .float = @intToFloat(float, l) },
+                .double => .{ .double = @intToFloat(double, l) },
+                else => unreachable,
+            },
+            .float => |f| switch (to) {
+                .int => .{ .int = @floatToInt(int, f) },
+                .long => .{ .long = @floatToInt(long, f) },
+                .double => .{ .double = @floatCast(double, f) },
+                else => unreachable,
+            },
+            .double => |d| switch (to) {
+                .int => .{ .int = @floatToInt(int, d) },
+                .long => .{ .long = @floatToInt(long, d) },
+                .float => .{ .float = @floatCast(float, d) },
+                else => unreachable,
+            },
+            else => unreachable,
+        };
     }
 };

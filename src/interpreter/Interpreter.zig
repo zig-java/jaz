@@ -182,18 +182,6 @@ fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []co
                         .dconst_0 => try stack_frame.operand_stack.push(.{ .double = 0 }),
                         .dconst_1 => try stack_frame.operand_stack.push(.{ .double = 1 }),
 
-                        .iload => |i| try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[i].int }),
-                        .iload_0 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[0].int }),
-                        .iload_1 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[1].int }),
-                        .iload_2 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[2].int }),
-                        .iload_3 => try stack_frame.operand_stack.push(.{ .int = stack_frame.local_variables.items[3].int }),
-
-                        .istore => |i| try stack_frame.setLocalVariable(i, .{ .int = stack_frame.operand_stack.pop().int }),
-                        .istore_0 => try stack_frame.setLocalVariable(0, .{ .int = stack_frame.operand_stack.pop().int }),
-                        .istore_1 => try stack_frame.setLocalVariable(1, .{ .int = stack_frame.operand_stack.pop().int }),
-                        .istore_2 => try stack_frame.setLocalVariable(2, .{ .int = stack_frame.operand_stack.pop().int }),
-                        .istore_3 => try stack_frame.setLocalVariable(3, .{ .int = stack_frame.operand_stack.pop().int }),
-
                         .bipush => |value| try stack_frame.operand_stack.push(.{ .int = value }),
                         .sipush => |value| try stack_frame.operand_stack.push(.{ .int = value }),
 
@@ -255,41 +243,47 @@ fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []co
 
                         .iinc => |iinc| stack_frame.local_variables.items[iinc.index].int += iinc.@"const",
 
-                        .fload => |i| try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[i].float }),
-                        .fload_0 => try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[0].float }),
-                        .fload_1 => try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[1].float }),
-                        .fload_2 => try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[2].float }),
-                        .fload_3 => try stack_frame.operand_stack.push(.{ .float = stack_frame.local_variables.items[3].float }),
+                        // zig fmt: off
+                        inline
+                        .iload, .iload_0, .iload_1, .iload_2, .iload_3,
+                        .fload, .fload_0, .fload_1, .fload_2, .fload_3,
+                        .dload, .dload_0, .dload_1, .dload_2, .dload_3,
+                        .aload, .aload_0, .aload_1, .aload_2, .aload_3,
+                        // zig fmt: on
+                        => |body_index, current| {
+                            const kind = comptime primitives.PrimitiveValueKind.fromSingleCharRepr(@tagName(current)[0]);
+                            const index = comptime if (@tagName(current).len < 6) body_index else std.fmt.parseInt(usize, @tagName(current)[6..], 10) catch unreachable;
 
-                        .fstore => |i| try stack_frame.setLocalVariable(i, .{ .float = stack_frame.operand_stack.pop().float }),
-                        .fstore_0 => try stack_frame.setLocalVariable(0, .{ .float = stack_frame.operand_stack.pop().float }),
-                        .fstore_1 => try stack_frame.setLocalVariable(1, .{ .float = stack_frame.operand_stack.pop().float }),
-                        .fstore_2 => try stack_frame.setLocalVariable(2, .{ .float = stack_frame.operand_stack.pop().float }),
-                        .fstore_3 => try stack_frame.setLocalVariable(3, .{ .float = stack_frame.operand_stack.pop().float }),
+                            try stack_frame.operand_stack.push(@unionInit(
+                                primitives.PrimitiveValue,
+                                @tagName(kind),
+                                @field(
+                                    stack_frame.local_variables.items[index],
+                                    @tagName(kind),
+                                ),
+                            ));
+                        },
 
-                        .dload => |i| try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[i].double }),
-                        .dload_0 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[0].double }),
-                        .dload_1 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[1].double }),
-                        .dload_2 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[2].double }),
-                        .dload_3 => try stack_frame.operand_stack.push(.{ .double = stack_frame.local_variables.items[3].double }),
+                        // zig fmt: off
+                        inline
+                        .istore, .istore_0, .istore_1, .istore_2, .istore_3,
+                        .fstore, .fstore_0, .fstore_1, .fstore_2, .fstore_3,
+                        .dstore, .dstore_0, .dstore_1, .dstore_2, .dstore_3,
+                        .astore, .astore_0, .astore_1, .astore_2, .astore_3,
+                        // zig fmt: on
+                        => |body_index, current| {
+                            const kind = comptime primitives.PrimitiveValueKind.fromSingleCharRepr(@tagName(current)[0]);
+                            const index = comptime if (@tagName(current).len < 7) body_index else std.fmt.parseInt(usize, @tagName(current)[7..], 10) catch unreachable;
 
-                        .dstore => |i| try stack_frame.setLocalVariable(i, .{ .double = stack_frame.operand_stack.pop().double }),
-                        .dstore_0 => try stack_frame.setLocalVariable(0, .{ .double = stack_frame.operand_stack.pop().double }),
-                        .dstore_1 => try stack_frame.setLocalVariable(1, .{ .double = stack_frame.operand_stack.pop().double }),
-                        .dstore_2 => try stack_frame.setLocalVariable(2, .{ .double = stack_frame.operand_stack.pop().double }),
-                        .dstore_3 => try stack_frame.setLocalVariable(3, .{ .double = stack_frame.operand_stack.pop().double }),
-
-                        .aload => |i| try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[i].reference }),
-                        .aload_0 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[0].reference }),
-                        .aload_1 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[1].reference }),
-                        .aload_2 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[2].reference }),
-                        .aload_3 => try stack_frame.operand_stack.push(.{ .reference = stack_frame.local_variables.items[3].reference }),
-
-                        .astore => |i| try stack_frame.setLocalVariable(i, .{ .reference = stack_frame.operand_stack.pop().reference }),
-                        .astore_0 => try stack_frame.setLocalVariable(0, .{ .reference = stack_frame.operand_stack.pop().reference }),
-                        .astore_1 => try stack_frame.setLocalVariable(1, .{ .reference = stack_frame.operand_stack.pop().reference }),
-                        .astore_2 => try stack_frame.setLocalVariable(2, .{ .reference = stack_frame.operand_stack.pop().reference }),
-                        .astore_3 => try stack_frame.setLocalVariable(3, .{ .reference = stack_frame.operand_stack.pop().reference }),
+                            try stack_frame.setLocalVariable(index, @unionInit(
+                                primitives.PrimitiveValue,
+                                @tagName(kind),
+                                @field(
+                                    stack_frame.operand_stack.pop(),
+                                    @tagName(kind),
+                                ),
+                            ));
+                        },
 
                         .iadd => try stack_frame.operand_stack.push(.{ .int = stack_frame.operand_stack.pop().int + stack_frame.operand_stack.pop().int }),
                         .imul => try stack_frame.operand_stack.push(.{ .int = stack_frame.operand_stack.pop().int * stack_frame.operand_stack.pop().int }),
@@ -371,26 +365,15 @@ fn interpret(self: *Interpreter, class_file: *const ClassFile, method_name: []co
                         },
 
                         // Conversions
-                        // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Conversions" for order
-                        .i2l => try stack_frame.operand_stack.push(.{ .long = @intCast(primitives.long, stack_frame.operand_stack.pop().int) }),
-                        .i2f => try stack_frame.operand_stack.push(.{ .float = @intToFloat(primitives.float, stack_frame.operand_stack.pop().int) }),
-                        .i2d => try stack_frame.operand_stack.push(.{ .double = @intToFloat(primitives.double, stack_frame.operand_stack.pop().int) }),
+                        // See https://docs.oracle.com/javase/specs/jvms/se16/html/jvms-7.html, subsection "Conversions"
+                        inline .i2l, .i2f, .i2d, .l2i, .l2f, .l2d, .f2i, .f2l, .f2d, .d2i, .d2l, .d2f, .i2b, .i2c, .i2s => |_, current| {
+                            const from = primitives.PrimitiveValueKind.fromSingleCharRepr(comptime @tagName(current)[0]);
+                            const to = primitives.PrimitiveValueKind.fromSingleCharRepr(comptime @tagName(current)[2]);
 
-                        .l2i => try stack_frame.operand_stack.push(.{ .int = @intCast(primitives.int, stack_frame.operand_stack.pop().long) }),
-                        .l2f => try stack_frame.operand_stack.push(.{ .float = @intToFloat(primitives.float, stack_frame.operand_stack.pop().long) }),
-                        .l2d => try stack_frame.operand_stack.push(.{ .double = @intToFloat(primitives.double, stack_frame.operand_stack.pop().long) }),
-
-                        .f2i => try stack_frame.operand_stack.push(.{ .int = @floatToInt(primitives.int, stack_frame.operand_stack.pop().float) }),
-                        .f2l => try stack_frame.operand_stack.push(.{ .long = @floatToInt(primitives.long, stack_frame.operand_stack.pop().float) }),
-                        .f2d => try stack_frame.operand_stack.push(.{ .double = @floatCast(primitives.double, stack_frame.operand_stack.pop().float) }),
-
-                        .d2i => try stack_frame.operand_stack.push(.{ .int = @floatToInt(primitives.int, stack_frame.operand_stack.pop().double) }),
-                        .d2l => try stack_frame.operand_stack.push(.{ .long = @floatToInt(primitives.long, stack_frame.operand_stack.pop().double) }),
-                        .d2f => try stack_frame.operand_stack.push(.{ .float = @floatCast(primitives.float, stack_frame.operand_stack.pop().double) }),
-
-                        .i2b => try stack_frame.operand_stack.push(.{ .byte = @intCast(primitives.byte, stack_frame.operand_stack.pop().int) }),
-                        .i2c => try stack_frame.operand_stack.push(.{ .char = @intCast(primitives.char, stack_frame.operand_stack.pop().int) }),
-                        .i2s => try stack_frame.operand_stack.push(.{ .short = @intCast(primitives.short, stack_frame.operand_stack.pop().int) }),
+                            const popped = stack_frame.operand_stack.pop();
+                            std.debug.assert(popped == from);
+                            try stack_frame.operand_stack.push(popped.cast(to));
+                        },
 
                         // Java bad
                         .newarray => |atype| {
